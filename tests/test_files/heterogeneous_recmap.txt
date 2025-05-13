@@ -1,0 +1,5 @@
+chrom   Position(bp)    rate(cM/bp) Map(cM)
+chr0   1   -   0
+chr0   2   -   0.000001
+chr0   3   -   0.000003
+chr0   5   -   0.000010

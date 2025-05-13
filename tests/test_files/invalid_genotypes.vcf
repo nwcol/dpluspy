@@ -1,0 +1,6 @@
+#CHROM	POS 	ID  	REF 	ALT 	QUAL	FILTER	INFO	FORMAT	sample1
+chr0	1	.	AT	TT	.	.	.	GT  0|1
+chr0	3	.	A	T	.	.	.	GT  0|1
+chr0	4	.	A	TA,A	.	.	.	GT  0|1
+chr0	5	.	A	TT	.	.	.	GT  0|1
+chr0	6	.	A	A,AT	.	.	.	GT  0|1

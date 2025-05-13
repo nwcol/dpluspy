@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "cython"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dpluspy"
+version = "0.0"
+description = "a package for learning about D+, a two-locus genetic statistic"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy >= 1.26.4",
+    "scipy >= 1.14.1",
+    "moments-popgen >= 1.2.2",
+    "demes >= 0.2.3",
+    "msprime >= 1.3.3",
+    "matplotlib >= 3.9.2",
+    "bokeh >= 3.6.2",
+]
+
+[tool.setuptools]
+packages = ["dpluspy"]
+
