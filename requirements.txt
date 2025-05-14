@@ -6,3 +6,4 @@ demes
 demesdraw
 moments-popgen
 msprime
+bokeh

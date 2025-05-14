@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dpluspy"
 version = "0.0"
-description = "a package for learning about D+, a two-locus genetic statistic"
+description = "A package for studying D+, a two-locus genetic statistic"
 requires-python = ">=3.8"
 dependencies = [
     "numpy >= 1.26.4",
