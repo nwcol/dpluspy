@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+ipython
+demes
+demesdraw
+moments-popgen
+msprime

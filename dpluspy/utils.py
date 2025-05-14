@@ -1,5 +1,5 @@
 """
-Utilities for reading/writing files.
+Houses utilities for reading/writing files and doing arithmetic.
 """
 
 import copy

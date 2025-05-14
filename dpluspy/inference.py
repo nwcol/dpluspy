@@ -1,5 +1,5 @@
 """
-Functions for fitting models to estimated statistics.
+Houses functions for fitting models to empirical statistics.
 """
 
 from datetime import datetime
@@ -13,7 +13,7 @@ import os
 import pickle
 
 from . import utils, bootstrapping
-from .datastrucs import DplusStats
+from .datastructures import DplusStats
 
 
 _out_of_bounds = 1e10

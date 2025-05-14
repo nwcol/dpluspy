@@ -1,4 +1,6 @@
-## A class for holding expected/mean D+ and H statistics.
+"""
+A class for holding expected ``D+`` and ``H`` statistics.
+"""
 
 import demes
 import moments

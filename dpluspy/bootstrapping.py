@@ -1,4 +1,6 @@
-## Functions for performing bootstraps and computing means.
+"""
+Houses functions for performing bootstraps and computing means.
+"""
 
 from collections import defaultdict
 import copy

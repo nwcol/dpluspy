@@ -1,5 +1,5 @@
 """
-Utility functions for setting up coalescent and forward-in-time simulations
+Utility functions for setting up coalescent and forward-in-time simulations.
 """
 
 import gzip

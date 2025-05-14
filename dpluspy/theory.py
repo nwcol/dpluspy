@@ -1,6 +1,5 @@
 """
-Odds and ends for comprehending some theoretical aspects of D+ and its 
-evolution (nothing systematic). 
+Houses fragments that deal with some theoretical aspects of ``D+``.
 """
 
 import numpy as np

@@ -1,5 +1,5 @@
 """
-Functions for estimating ``D+`` from sequence data.
+Houses functions for estimating ``D+`` from sequence data.
 """
 
 from collections import defaultdict
