@@ -365,13 +365,11 @@ def _read_bedgraph_map(filename, map_col=None, sep=None):
     return coords, map_coords
 
 
-def _read_hapmap_map(filename, map_col=None):
+def _read_hapmap_map(filename, pos_col="Position(bp)", map_col="Map(cM)"):
     """
     Read a recombination map in the Hapmap format, returning arrays of physical
     and map coordinates. The first line must be a header.
     """
-    if map_col is None:
-        map_col = 'Map(cM)'
     if filename.endswith('.gz'):
         openfunc = gzip.open 
     else:
@@ -379,8 +377,11 @@ def _read_hapmap_map(filename, map_col=None):
     coords = []
     map_coords = []
     with openfunc(filename, "rb") as fin:
-        header_line = fin.readline().decode().split()
-        coord_idx = header_line.index('Position(bp)')
+        header_line = fin.readline().decode()
+        if '"' in header_line:
+            header_line = header_line.replace('"', '')
+        header_line = header_line.split()
+        coord_idx = header_line.index(pos_col)
         map_idx = header_line.index(map_col)
         for line in fin:
             split_line = line.decode().strip().split()

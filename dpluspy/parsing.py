@@ -19,6 +19,8 @@ def parse_statistics(
     pop_file=None,
     pop_mapping=None,
     rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
     interp_method='linear',
     r=None,
     r_bins=None,
@@ -39,12 +41,17 @@ def parse_statistics(
     """
     if not (regions is not None) ^ (regions_file is not None):
         raise ValueError('You must provide either `regions` or `regions_file`')
+    
     if regions_file:
         regions = np.loadtxt(regions_file)
     for region in regions:
         assert len(region) >= 2 and len(region) <= 3
+
     if chrom is None:
         chrom = ""
+
+    if isinstance(r_bins, str):
+        r_bins = np.loadtxt(r_bins)
 
     stats = {}
 
@@ -64,6 +71,8 @@ def parse_statistics(
         denoms = compute_denominators(
             bed_file=bed_file,
             rec_map_file=rec_map_file,
+            pos_col=pos_col,
+            map_col=map_col,
             interp_method=interp_method,
             r=r,
             interval=interval,
@@ -73,6 +82,8 @@ def parse_statistics(
             denoms += compute_denominators(
                 bed_file=bed_file,
                 rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
                 interp_method=interp_method,
                 r=r,
                 interval_between=interval_between,
@@ -91,6 +102,8 @@ def parse_statistics(
                 mut_map_file,
                 bed_file=bed_file,
                 rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
                 interp_method=interp_method,
                 r=r,
                 interval=interval,
@@ -102,6 +115,8 @@ def parse_statistics(
                     mut_map_file,
                     bed_file=bed_file,
                     rec_map_file=rec_map_file,
+                    pos_col=pos_col,
+                    map_col=map_col,
                     interp_method=interp_method,
                     r=r,
                     interval_between=interval_between,
@@ -117,6 +132,8 @@ def parse_statistics(
             pop_file=pop_file,
             pop_mapping=pop_mapping,
             rec_map_file=rec_map_file,
+            pos_col=pos_col,
+            map_col=map_col,
             interp_method=interp_method,
             r=r,
             interval=interval,
@@ -131,6 +148,8 @@ def parse_statistics(
                 pop_file=pop_file,
                 pop_mapping=pop_mapping,
                 rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
                 interp_method=interp_method,
                 r=r,
                 interval_between=interval_between,
@@ -166,6 +185,8 @@ def compute_statistics(
     pop_file=None,
     pop_mapping=None,
     rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
     interp_method='linear',
     r=None,
     interval=None,
@@ -193,6 +214,10 @@ def compute_statistics(
         sample IDs (default None). Mutually exclusive with `pop_file`.
     :param rec_map_file: Optional recombination map in HapMap or BEDGRAPH
         format. Either `rec_map_file` or `r` and `L` must be provided.
+    :param pos_col: Recombination map position column to use (default 
+        "Position(bp)"). Functions only when a hapmap-format map is given.
+    :param pos_col: Recombination map coordinate column to use (default 
+        "Map(cM)"). 
     :param interp_method: Optional method for interpolating recombination map
         coordinates (default 'linear'). Must be a valid `kind` argument to
         `scipy.interpolate.interp1d`. 
@@ -243,7 +268,10 @@ def compute_statistics(
         rec_map = _get_uniform_recombination_map(r, tot_interval[-1])
     else:
         rec_map = _load_recombination_map(
-            rec_map_file, interp_method=interp_method
+            rec_map_file, 
+            pos_col=pos_col,
+            map_col=map_col,
+            interp_method=interp_method
         )
 
     if r_bins is None:
@@ -320,6 +348,8 @@ def _empty_sums(bins, pop_ids, cross_pop=True):
 def compute_denominators(
     bed_file=None,
     rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
     interp_method='linear',
     r=None,
     interval=None,
@@ -393,7 +423,11 @@ def compute_denominators(
         rec_map = _get_uniform_recombination_map(r, all_positions[-1])
     else:
         rec_map = _load_recombination_map(
-            rec_map_file, interp_method=interp_method)
+            rec_map_file, 
+            pos_col=pos_col,
+            map_col=map_col,
+            interp_method=interp_method
+        )
 
     if within:
         if interval is None:
@@ -424,6 +458,8 @@ def compute_mutation_factors(
     mut_map_col=None,
     bed_file=None,
     rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
     interp_method='linear',
     r=None,
     interval=None,
@@ -491,7 +527,11 @@ def compute_mutation_factors(
         rec_map = _get_uniform_recombination_map(r, all_positions[-1])
     else:
         rec_map = _load_recombination_map(
-            rec_map_file, interp_method=interp_method)
+            rec_map_file, 
+            pos_col=pos_col,
+            map_col=map_col,
+            interp_method=interp_method
+        )
 
     if r_bins is None:
         raise ValueError('You must provide `r_bins`')
@@ -1234,7 +1274,8 @@ def _get_uniform_recombination_map(r, L):
 
 def _load_recombination_map(
     filename, 
-    map_col=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
     interp_method="linear", 
     unit='cM',
     sep=None,
@@ -1247,6 +1288,8 @@ def _load_recombination_map(
 
     :param filename: Filename of recombination map.
     :param map_col: Title of column containing map coordinates.
+    :param pos_col: Name of position column for hapmap-format files. Default    
+        None uses "Position(bp)"
     :param kind: The type of interpolation to use (default 'linear').
     :param unit: The map unit expected in the file (default 'cM'). Values not
         in ('cM', 'M') will raise errors. If 'cM', coordinates are transformed
@@ -1259,14 +1302,25 @@ def _load_recombination_map(
     :returns: Interpolate function
     :rtype: scipy.interpolate.interp1d 
     """
-    if filename.endswith(".txt") or filename.endswith(".txt.gz"):
-        coords, map_coords = utils._read_hapmap_map(filename, map_col=map_col)
-    elif filename.endswith(".bedgraph") or filename.endswith(".bedgraph.gz"):
+    if pos_col is None:
+        pos_col = "Position(bp)"
+    if map_col is None: 
+        map_col = "Map(cM)"
+    if ".txt" in filename:
+        coords, map_coords = utils._read_hapmap_map(
+            filename, map_col=map_col, pos_col=pos_col
+        )
+    elif ".bed" or ".bedgraph" in filename:
         coords, map_coords = utils._read_bedgraph_map(
             filename, map_col=map_col, sep=sep
         )
     else:
-        raise ValueError('Unrecognized file format')
+        try:
+            coords, map_coords = utils._read_hapmap_map(
+                filename, map_col=map_col, pos_col=pos_col
+            )
+        except:
+            raise ValueError("Unrecognized recombination map file format")
     if unit not in ('cM', 'M'):
         raise ValueError('Unrecognized map unit')
     if np.any(coords) < 1:
