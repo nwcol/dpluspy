@@ -361,11 +361,13 @@ def weighted_means_across_regions(regions):
     sums = 0.0
     pair_counts = 0.0
     mut_prods = 0.0
+    mut_sum = 0.0
     num_sites = 0.0
     for key in regions:
         sums += regions[key]['sums']
         pair_counts += regions[key]['denoms'][:-1]
         mut_prods += regions[key]['mut_facs'][:-1]
+        mut_sum += regions[key]['mut_facs'][-1]
         num_sites += regions[key]['denoms'][-1]
     # Compute the u-weighted denominator
     weighted_denoms = mut_prods / (mut_prods.sum() / pair_counts.sum())

@@ -7,3 +7,4 @@ demesdraw
 moments-popgen
 msprime
 bokeh
+pandas

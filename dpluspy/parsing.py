@@ -6,6 +6,7 @@ from collections import defaultdict
 import copy
 import gzip
 import numpy as np
+import pandas
 import re
 import scipy
 import warnings
@@ -55,7 +56,7 @@ def parse_statistics(
 
     stats = {}
 
-    for i, region in enumerate(regions):
+    for ii, region in enumerate(regions):
         region_stats = {}
         if len(region) == 2:
             interval = region
@@ -94,7 +95,7 @@ def parse_statistics(
         region_stats['num_sites'] = num_sites
         if num_sites == 0:
             print(utils._current_time(), 
-                  f'Chromosome {chrom} window {i} is empty')
+                  f'Chromosome {chrom} window {ii} is empty')
             continue
 
         if mut_map_file:
@@ -159,22 +160,21 @@ def parse_statistics(
             )[0]
             if np.sum(_sums) == 0:
                 print(utils._current_time(),
-                    f'Chromosome {chrom} window overhang {i} has zero sum')
+                    f'Chromosome {chrom} window overhang {ii} has zero sum')
             sums += _sums
         if np.sum(sums) == 0:
             print(utils._current_time(),
-                  f'Chromosome {chrom} window {i} has zero sum')
+                  f'Chromosome {chrom} window {ii} has zero sum')
 
         region_stats['pop_ids'] = pop_ids
         region_stats['sums'] = sums
         if isinstance(r_bins, str):
             r_bins = np.loadtxt(r_bins)
         region_stats['bins'] = r_bins
-        key = f'{chrom}:{i}:{region}'
-        stats[key] = region_stats
+        stats[ii] = region_stats
 
         print(utils._current_time(), 
-            f'Parsed chromosome {chrom} window {i}')
+            f'Parsed chromosome {chrom} window {ii}')
         
     return stats
 
@@ -1286,7 +1286,7 @@ def _load_recombination_map(
     positions for sites. Works for maps saved as BEDGRAPH files or in the 
     Hapmap format. The returned map should be in units of Morgans.
 
-    :param filename: Filename of recombination map.
+    :param str filename: Filename of recombination map.
     :param map_col: Title of column containing map coordinates.
     :param pos_col: Name of position column for hapmap-format files. Default    
         None uses "Position(bp)"
@@ -1343,7 +1343,7 @@ def _load_recombination_map(
     return map_func
 
 
-def _load_mutation_map(filename, positions, map_col=None):
+def _load_mutation_map(filename, positions, map_col="mut_map"):
     """
     Load a mutation map in BEDGRAPH format, or from a site-resolution .npy
     file.
@@ -1353,8 +1353,10 @@ def _load_mutation_map(filename, positions, map_col=None):
 
     :returns: Site-resolution mutation map array.
     """
-    if filename.endswith('.bedgraph') or filename.endswith('.bedgraph.gz'):
-        coords, tot_map = utils._read_bedgraph_map(filename, map_col=map_col)
+    if ".bedgraph" in filename or ".csv" in filename:
+        data = pandas.read_csv(filename)
+        coords = np.array(data["chromEnd"])
+        tot_map = np.array(data[map_col])
         if np.any(positions > coords[-1]):
             raise ValueError('Positions exceed map length')
         idxs = np.searchsorted(coords, positions)

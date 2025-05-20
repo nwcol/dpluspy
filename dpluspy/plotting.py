@@ -264,12 +264,14 @@ def plot_d_plus_curves(
             ax.grid(alpha=0.3)
 
     if len(labels) > 1:
-            fig.legend(framealpha=0, loc='lower right', ncols=len(labels))
+            fig.legend(framealpha=0, loc='upper right', ncols=len(labels))
     if title:
-        fig.suptitle(title)
+        fig.suptitle(title, x=0.04, horizontalalignment='left')
+    else:
+        fig.suptitle("")
 
     if out:
-        plt.savefig(out, dpi=244, bbox_inches='tight')
+        plt.savefig(out, dpi=244, bbox_inches='tight', pad_inches=0.1)
     if show:
         plt.show()
 
