@@ -171,7 +171,11 @@ def parse_statistics(
         if isinstance(r_bins, str):
             r_bins = np.loadtxt(r_bins)
         region_stats['bins'] = r_bins
-        stats[ii] = region_stats
+        if chrom is not None:
+            key = (chrom, ii)
+        else:
+            key = ii
+        stats[key] = region_stats
 
         print(utils._current_time(), 
             f'Parsed chromosome {chrom} window {ii}')
