@@ -172,9 +172,9 @@ def parse_statistics(
             r_bins = np.loadtxt(r_bins)
         region_stats['bins'] = r_bins
         if chrom is not None:
-            key = (chrom, ii)
+            key = (chrom, ii, region)
         else:
-            key = ii
+            key = (ii, region)
         stats[key] = region_stats
 
         print(utils._current_time(), 
@@ -1373,7 +1373,6 @@ def _load_mutation_map(filename, positions, map_col="mut_map"):
         assert not np.any(np.isnan(mut_map))
     else:
         raise ValueError('Unrecognized file format')
-
     return mut_map
 
 
