@@ -171,10 +171,11 @@ def parse_statistics(
         if isinstance(r_bins, str):
             r_bins = np.loadtxt(r_bins)
         region_stats['bins'] = r_bins
+        region_repr = tuple([int(_) for _ in region])
         if chrom is not None:
-            key = (chrom, ii, region)
+            key = (chrom, ii, region_repr)
         else:
-            key = (ii, region)
+            key = (ii, region_repr)
         stats[key] = region_stats
 
         print(utils._current_time(), 
