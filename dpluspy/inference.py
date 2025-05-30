@@ -12,15 +12,14 @@ import sys
 import os
 import pickle
 
-from . import utils, bootstrapping
-from .datastructures import DplusStats
+from . import utils, bootstrapping, DplusStats
 
 
 _out_of_bounds = 1e10
 _counter = 0
 
 
-def load_statistics(data_file, graph=None):
+def load_stats(data_file, graph=None, to_pops=None):
     """
     Load bootstrapped statistics stored in a .pkl file, subsetting it to the
     set of populations present in both the file and a Demes graph .yaml file.
@@ -29,13 +28,16 @@ def load_statistics(data_file, graph=None):
         'pop_ids', 'bins', and corresponding 'means' and 'varcovs'.
     :param graph_file: Optional of a .yaml Demes file- if given, subset to the
         populations common to the graph and data (default None).
+    :param to_pops: Optional list of populations to subset to.
 
     :returns: List of population IDs, bins, means, and varcovs.
     """
-    data = pickle.load(open(data_file, "rb"))
+    with open(data_file, "rb") as fin:
+        data = pickle.load(fin)
     if graph:
         _pop_ids = data["pop_ids"]
-        pop_ids = graph_data_overlap(graph, _pop_ids)
+        to_pops = graph_data_overlap(graph, _pop_ids)
+    if to_pops is not None:
         means = bootstrapping.subset_means(data["means"], _pop_ids, pop_ids)
         varcovs = bootstrapping.subset_varcovs(
             data["varcovs"], _pop_ids, pop_ids)
@@ -44,7 +46,6 @@ def load_statistics(data_file, graph=None):
         means = data['means']
         varcovs = data['varcovs']
     bins = data["bins"]
-
     return pop_ids, bins, means, varcovs
 
 

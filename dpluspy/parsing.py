@@ -64,7 +64,8 @@ def parse_statistics(
         else:
             interval = region[:2]
             if region[1] != region[2]:
-                interval_between = ((region[0], region[1]), (region[1], region[2]))
+                interval_between = (
+                    (region[0], region[1]), (region[1], region[2]))
             else:
                 interval_between = None
 
@@ -91,9 +92,7 @@ def parse_statistics(
                 r_bins=r_bins 
             )
         region_stats['denoms'] = denoms
-        num_sites = denoms[-1]
-        region_stats['num_sites'] = num_sites
-        if num_sites == 0:
+        if denoms[-1] == 0:
             print(utils._current_time(), 
                   f'Chromosome {chrom} window {ii} is empty')
             continue
@@ -168,8 +167,6 @@ def parse_statistics(
 
         region_stats['pop_ids'] = pop_ids
         region_stats['sums'] = sums
-        if isinstance(r_bins, str):
-            r_bins = np.loadtxt(r_bins)
         region_stats['bins'] = r_bins
         region_repr = tuple([int(_) for _ in region])
         if chrom is not None:
@@ -181,6 +178,171 @@ def parse_statistics(
         print(utils._current_time(), 
             f'Parsed chromosome {chrom} window {ii}')
         
+    return stats
+
+
+def parse_statistics_fancy(
+    vcf_file,
+    bed_file,
+    pop_file=None,
+    pop_mapping=None,
+    rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
+    interp_method='linear',
+    r=None,
+    r_bins=None,
+    phased=False,
+    cross_pop=True,
+    mut_map_file=None,
+    mut_map_col=None,
+    intervals=None,
+    interval_file=None,
+    chrom=None
+):
+    """
+    As above, but with a more elaborate window setup: we compute and store
+    between-window statistics separately.
+    """
+    if not (intervals is not None) ^ (interval_file is not None):
+        raise ValueError('You must provide either `regions` or `regions_file`')
+    
+    if chrom is None:
+        chrom = ""
+    if isinstance(r_bins, str):
+        r_bins = np.loadtxt(r_bins)
+
+    if interval_file:
+        intervals = np.loadtxt(interval_file)
+    for interval in intervals:
+        assert len(interval) == 3
+
+    # Construct pairs of intervals
+    all_pairs = []
+    labels = [tuple([int(_) for _ in interval]) for interval in intervals]
+    for ii, label0 in enumerate(labels):
+        for jj, label1 in enumerate(labels):
+            if ii > jj:
+                pass 
+            elif ii == jj:
+                all_pairs.append((label0[:-1], label0[:-1]))
+            else:
+                if label0[-1] >= label1[1]:
+                    all_pairs.append((label0[:-1], label1[:-1]))
+                else:
+                    break
+
+    stats = dict()
+
+    for ii, interval_pair in enumerate(all_pairs):
+        stats_ii = {}
+        label0, label1 = interval_pair
+        if label0 == label1: 
+            interval = label0
+            within = True 
+        else:
+            within = False
+
+        # Compute denominators
+        if within:
+            stats_ii["denoms"] = compute_denominators(
+                bed_file=bed_file,
+                rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
+                interp_method=interp_method,
+                r=r,
+                interval=interval,
+                r_bins=r_bins
+            )
+        else:
+            stats_ii["denoms"] = compute_denominators(
+                bed_file=bed_file,
+                rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
+                interp_method=interp_method,
+                r=r,
+                interval_between=interval_pair,
+                r_bins=r_bins 
+            )
+        if stats_ii["denoms"][-1] == 0:
+            print(utils._current_time(), 
+                  f'Chromosome {chrom}, {interval_pair} is empty')
+            continue
+
+        if mut_map_file:
+            if within:
+                stats_ii["denoms"], _ = compute_mutation_factors(
+                    mut_map_file,
+                    bed_file=bed_file,
+                    rec_map_file=rec_map_file,
+                    pos_col=pos_col,
+                    map_col=map_col,
+                    interp_method=interp_method,
+                    r=r,
+                    interval=interval,
+                    r_bins=r_bins,
+                    mut_map_col=mut_map_col
+                )
+            else:
+                stats_ii["denoms"], _ = compute_mutation_factors(
+                    mut_map_file,
+                    bed_file=bed_file,
+                    rec_map_file=rec_map_file,
+                    pos_col=pos_col,
+                    map_col=map_col,
+                    interp_method=interp_method,
+                    r=r,
+                    interval_between=interval_pair,
+                    r_bins=r_bins,
+                    mut_map_col=mut_map_col
+                )
+
+        # Compute sums
+        if within:
+            stats_ii["sums"], stats_ii['pop_ids'] = compute_statistics(
+                vcf_file,
+                bed_file=bed_file,
+                pop_file=pop_file,
+                pop_mapping=pop_mapping,
+                rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
+                interp_method=interp_method,
+                r=r,
+                interval=interval,
+                r_bins=r_bins,
+                phased=phased,
+                cross_pop=cross_pop
+            )
+        else:
+            stats_ii["sums"], stats_ii['pop_ids'] = compute_statistics(
+                vcf_file,
+                bed_file=bed_file,
+                pop_file=pop_file,
+                pop_mapping=pop_mapping,
+                rec_map_file=rec_map_file,
+                pos_col=pos_col,
+                map_col=map_col,
+                interp_method=interp_method,
+                r=r,
+                interval_between=interval_pair,
+                r_bins=r_bins,
+                phased=phased,
+                cross_pop=cross_pop
+            )
+        if np.sum(stats_ii["sums"]) == 0:
+            print(utils._current_time(),
+                f'Chromosome {chrom}, {interval_pair} has zero sum')
+        stats_ii["bins"] = r_bins
+        if chrom is not None:
+            key = (chrom, ii, interval_pair)
+        else:
+            key = (ii, interval_pair)
+        stats[key] = stats_ii
+        print(utils._current_time(), 
+            f'Parsed chromosome {chrom}, {interval_pair}')
     return stats
 
 
@@ -1109,7 +1271,6 @@ def _pi_xy(genotypes_i, genotypes_j):
     """
     pairwise_diff = genotypes_i[:, :, np.newaxis] != genotypes_j[:, np.newaxis]
     pi = pairwise_diff.sum((2, 1)) / 4
-
     return pi
 
 
@@ -1173,7 +1334,6 @@ def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
             if verbose:
                 print(utils._current_time(), 
                     f"locus pairs summed (within) in bin {i}")
-
     return sums
 
 
@@ -1247,7 +1407,6 @@ def _count_locus_pairs_between(
             if verbose:
                 print(utils._current_time(), 
                     f"locus pairs summed (between) in bin {i}")
-
     return sums
 
 

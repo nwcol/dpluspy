@@ -182,8 +182,10 @@ def plot_d_plus_curves(
     # special cases for color assignment
     if len(models) == 1 and len(means) == 1:
         colors = [palettes.Category10_10[0]] * 2
-    else:
+    elif len(labels) <= 10:
         colors = palettes.Category10_10
+    else:
+        colors = palettes.TolRainbow[len(labels)]
 
     for i, stat in enumerate(stats_to_plot):
         ax = axs[i]
@@ -264,7 +266,11 @@ def plot_d_plus_curves(
             ax.grid(alpha=0.3)
 
     if len(labels) > 1:
-            fig.legend(framealpha=0, loc='upper right', ncols=len(labels))
+            # why not use a rule like this to determine the number of legend columns
+            ncols = int(np.ceil(np.sqrt(len(labels))))
+            fig.legend(
+                framealpha=0, loc='lower center', ncols=ncols, 
+                bbox_to_anchor=(0.5, -0.1))
     if title:
         fig.suptitle(title, x=0.04, horizontalalignment='left')
     else:

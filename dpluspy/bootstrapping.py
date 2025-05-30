@@ -1,28 +1,23 @@
 """
-Houses functions for performing bootstraps and computing means.
+Houses functions for subsetting statistics, computing means, and bootstrapping.
 """
 
-from collections import defaultdict
-import copy
+import random
 import numpy as np
 import pickle
-import warnings
 
 from . import utils
 
 
-## Subsetting empirical statistics
-
-
-def subset_statistics(
+def subset_stats(
     statistics, 
     to_pops=None, 
     min_r=None, 
     max_r=None,
-    return_dict=False
+    return_dict=True
 ):
     """
-    Subset a dictionary holding statistics by populations or bins. 
+    Subset a dictionary holding statistics by population and/or r. 
 
     :param statistics: A dictionary with fields 'means', 'varcovs', 'pop_ids',
         and 'bins'.
@@ -32,7 +27,7 @@ def subset_statistics(
     :param max_r: Maximum upper bin edge, inclusive (default None).
     :param return_dict: If True, return a dictionary with the same fields as
         required for the input- otherwise return bins, means and varcovs in a 
-        tuple (default False).
+        tuple (default True).
 
     :returns: Dictionary of subsetted statistics.
     :rtype: dict
@@ -64,8 +59,7 @@ def subset_statistics(
     new_varcovs = subset_varcovs(varcovs, pop_ids, to_pops)
 
     if return_dict:
-        if to_pops:
-            pop_ids = to_pops
+        pop_ids = to_pops
         subset_stats = {
             'pop_ids': pop_ids,
             'bins': bins,
@@ -75,23 +69,6 @@ def subset_statistics(
         return subset_stats
     else:
         return bins, new_means, new_varcovs
-
-
-def load_statistics(filename, to_pops=None):
-    # deprecated
-    stats = pickle.load(open(filename, "rb"))
-    bins = stats["bins"]
-    if to_pops is not None:
-        all_ids = stats["pop_ids"]
-        means = subset_means(stats["means"], all_ids, to_pops)
-        varcovs = subset_varcovs(stats["varcovs"], all_ids, to_pops)
-        pop_ids = to_pops
-    else:
-        pop_ids = stats["pop_ids"]
-        means = stats["means"]
-        varcovs = stats["varcovs"]
-
-    return pop_ids, bins, means, varcovs
 
 
 def subset_means(means, pop_ids, to_pops):
@@ -122,7 +99,6 @@ def subset_means(means, pop_ids, to_pops):
             to_stats.append(f"D+_{_idx0}_{_idx1}")
     to_idx = np.array([stats.index(to_stat) for to_stat in to_stats])
     new_means = [means[i][to_idx] for i in range(len(means))]
-
     return new_means
 
 
@@ -146,51 +122,27 @@ def subset_varcovs(varcovs, pop_ids, to_pops):
     to_idx = np.array([stats.index(to_stat) for to_stat in to_stats])
     mesh = np.ix_(to_idx, to_idx)
     new_varcovs = [varcovs[i][mesh] for i in range(len(varcovs))]
-
     return new_varcovs
 
 
-## Loading statistics
-
-
-def load_raw_stats(filenames, load_mut_facs=False):
+def load_raw_statistics(filenames):
     """
-    Load statistics from .pkl files. The expected format of each file is
-    {
-        "key1": {
-            "sums": array([[...]]),
-            "denoms": array([...])},
-            "bins": array([...]),
-            "pop_ids": [...], 
-            "mut_facs": array([]) (optional)
-            ...
-        },
-        "key2": {...},
-        ...
-    }
+    Load statistics from .pkl files. 
 
     :param filenames: Files from which to load raw statistics.
 
     :returns: population IDs, bin edges, and dictionary of raw data
     :rtypes: (list, np.ndarray, dict)
     """
-    raw_data = defaultdict(dict)
+    regions = dict()
     for filename in filenames:
-        contents = pickle.load(open(filename, "rb+"))
-        for key in contents:
-            if key in raw_data: 
-                raise ValueError(f"{key} appears twice in input")
-            bins = contents[key]["bins"]
-            pop_ids = contents[key]["pops"]
-            raw_data[key]["sums"] = contents[key]["sums"]
-            raw_data[key]["denoms"] = contents[key]["denoms"]
-            raw_data[key]["weights"] = contents[key]["weights"]
-            if load_mut_facs:
-                if not "mut_facs" in contents[key]:
-                    raise ValueError(f"Region {key} has no `mut_facs`")
-                raw_data[key["mut_facs"]] = contents[key]["mut_facs"]
-
-    return pop_ids, bins, raw_data
+        with open(filename, "rb+") as fin:
+            contents = pickle.load(fin)
+        for label in contents:
+            if label in regions: 
+                raise ValueError(f"Label {label} appears twice in input")
+            regions[label] = contents[label]
+    return regions
 
 
 def load_bootstrap_means(filename, to_pops=None, size=None):
@@ -215,224 +167,115 @@ def load_bootstrap_means(filename, to_pops=None, size=None):
             ret_means.append(utils.subset_means(means, pop_ids, to_pops))
         ret_pop_ids = to_pops
     bins = contents["bins"]
-
     return ret_means, bins, ret_pop_ids
 
 
-def bootstrap(regions, num_reps=1000):
+def bootstrap_statistics(regions, num_reps=None, weighted=False):
     """
     Perform a bootstrap to obtain covariance matrices for D+ and H statistics,
     estimated in genomic blocks. Operates upon sums of D+, H, and their
     respective denominators, so that regions are weighted appropriately. 
     
-    :param regions: A dictionary with sums of D+ and H statistics from genomic
-        regions as values, with arbitrary keys specifying region names.
-    :type regions: dict
-    :param num_reps: Number of bootstrap replicates to perform; if None, then 
-        uses the number of regions (default None).
-    :type num_reps: int
+    :param dict regions: Dictionary of sums corresponding to genomic regions.
+    :param int num_reps: Optional number of bootstrap replicates to assemble
+        (defalts to `len(regions)`).
+    :param bool weighted: If True (default False), compute mutation-rate 
+        weighted statistics. Assumes "mut_facs" exists in each region.
     
-    :returns: Lists of mean and covariance arrays for each D+ bin and for the H
-        statistics. Optionally also a list of bootstrap replicate means.
-    :rtype: tuple (2 or 3-tuple of lists)
+    :returns: List of means and list of bootstrap covariances.
     """
-    means = means_across_regions(regions)
-    labels = list(regions.keys())
-    sample_size = len(regions)
-    bootstrap_means = []
-    for i in range(num_reps):
-        samples = np.random.choice(labels, sample_size, replace=True)
-        sampled_regions = [regions[sample] for sample in samples]
-        _means = means_across_replicates(sampled_regions)
-        bootstrap_means.append(_means)
+    if num_reps is None:
+        num_reps = len(regions)
+    if weighted:
+        means = weighted_means_across_regions(means)
+    else:
+        means = means_across_regions(regions)
+    bootstrap_means = get_bootstrap_replicates(
+        regions, num_reps=num_reps, weighted=weighted
+    )
     varcovs = []
     for i in range(len(means)):
         bin_means = np.array([_means[i] for _means in bootstrap_means])
         varcov_matrix = np.cov(bin_means.T)
-        # this occurs when the bootstrap involves only one statistic
+        # This occurs when the bootstrap involves only one statistic
         if varcov_matrix.shape == ():
             varcov_matrix = varcov_matrix.reshape((1, 1))
         varcovs.append(varcov_matrix)
-
     return means, varcovs
 
 
-def get_bootstrap_replicates(regions, num_reps=1000):
+def get_bootstrap_replicates(regions, num_reps=None, weighted=False):
     """
-    
-    """
+    Perform a bootstrap and return a list of replicate means.
 
+    :param dict regions: Dictionary of sums corresponding to genomic regions.
+    :param int num_reps: Optional number of bootstrap replicates to assemble
+        (defalts to `len(regions)`).
+    :param bool weighted: If True (default False), compute mutation-rate 
+        weighted statistics. Assumes "mut_facs" exists in each region.
+    """
+    if num_reps is None:
+        num_reps = len(regions)
+    labels = list(regions.keys())
+    sample_size = len(regions)
     bootstrap_means = []
-
+    for i in range(num_reps):
+        samples = random.choices(labels, k=sample_size)
+        sampled_regions = [regions[sample] for sample in samples]
+        if weighted:
+            rep_means = _weighted_means_across_replicates(sampled_regions)
+        else:
+            rep_means = _means_across_replicates(sampled_regions)
+        bootstrap_means.append(rep_means)
     return bootstrap_means
 
 
 def means_across_regions(regions):
     """
-    Compute mean statistics across genomic windows.
+    Compute mean D+ and H across genomic windows.
     
-    :param regions: Dictionary of dictionaries that represent genomic windows,
-        each containing summed D+, H statistics and respective denominators.
-        Statistics should be numpy arrays, with the 0th dimension indexing bins.
-    :type regions: dict
-
-    :returns: A list holding the mean statistics in each bin.
-    :rtype: list
+    :param dict regions: Dictionary of sums corresponding to genomic regions.
     """
-    sums = 0.0
-    denoms = 0.0
-    for key in regions:
-        sums += regions[key]["sums"]
-        denoms += regions[key]["denoms"]
-    ext_denoms = np.repeat(denoms[:, np.newaxis], sums.shape[1], axis=1)
-    raw_means = np.full(sums.shape, np.nan, dtype=np.float64)
-    np.divide(sums, ext_denoms, where=ext_denoms > 0, out=raw_means)
-    if np.any(np.isnan(raw_means)):
-        warnings.warn("nan means exist in output")
+    sums = np.array([regions[reg]["sums"] for reg in regions])
+    denoms = np.array([regions[reg]["denoms"] for reg in regions])
+    raw_means = np.zeros(sums.shape[1:], dtype=np.float64)
+    raw_means[:, :-1] = sums[:, :-1].sum(0) / denoms.sum(0)[:, None]
+    raw_means[:, -1] = sums[:, -1].sum(0) / denoms[:, -1].sum()
     means = [raw_means[i] for i in range(len(raw_means))]
-
     return means
-
-
-def means_across_replicates(replicates):
-    """
-    Compute mean statistics across a list of replicates. 
-    
-    :param replicates: List of dictionaries that hold summed D+, H statistics
-        and the respective denominators as numpy arrays.
-    :type replicates: list
-
-    :returns: A list of mean statistics for each bin.
-    :rtype: list
-    """
-    rep_dict = {i: replicate for i, replicate in enumerate(replicates)}
-    means = means_across_regions(rep_dict)
-
-    return means
-
-
-def weighted_bootstrap(
-    regions,
-    num_reps=None, 
-    sample_size=None, 
-    get_reps=False
-):
-    """
-    Perform a bootstrap on a dictionary of region-specific D+ and H sums, 
-    using the mutation rate-weighted estimator to de-distort the shape of the
-    D+ curve. 
-
-    Each region should be represented by a weighted dictionary in `regions`,
-    minimally containing 'sums', 'num_sites' and 'mut_facs'. 
-    """
-    if num_reps is None:
-        num_reps = len(regions)
-    if sample_size is None:
-        sample_size = len(regions)
-    means = weighted_means_across_regions(regions)
-    labels = list(regions.keys())
-    sample_size = len(regions)
-    bootstrap_means = []
-    for i in range(num_reps):
-        samples = np.random.choice(labels, sample_size, replace=True)
-        sampled_regions = [regions[sample] for sample in samples]
-        _means = weighted_means_across_replicates(sampled_regions)
-        bootstrap_means.append(_means)
-    varcovs = []
-    for i in range(len(means)):
-        bin_means = np.array([_means[i] for _means in bootstrap_means])
-        varcov_matrix = np.cov(bin_means.T)
-        # this occurs when the bootstrap involves only one statistic
-        if varcov_matrix.shape == ():
-            varcov_matrix = varcov_matrix.reshape((1, 1))
-        varcovs.append(varcov_matrix)
-    if get_reps:
-        ret = (means, varcovs, bootstrap_means)
-    else:
-        ret = (means, varcovs)
-
-    return ret
 
 
 def weighted_means_across_regions(regions):
     """
-    Compute mutation-rate weighted D+ across a dictionary of regions.
-    """
-    sums = 0.0
-    pair_counts = 0.0
-    mut_prods = 0.0
-    mut_sum = 0.0
-    num_sites = 0.0
-    for key in regions:
-        sums += regions[key]['sums']
-        pair_counts += regions[key]['denoms'][:-1]
-        mut_prods += regions[key]['mut_facs'][:-1]
-        mut_sum += regions[key]['mut_facs'][-1]
-        num_sites += regions[key]['denoms'][-1]
-    # Compute the u-weighted denominator
-    weighted_denoms = mut_prods / (mut_prods.sum() / pair_counts.sum())
-    denoms = np.append(weighted_denoms, num_sites)
+    Compute mean mutation-rate weighted D+ across a dictionary of genomic
+    regions.
     
-    ext_denoms = np.repeat(denoms[:, np.newaxis], sums.shape[1], axis=1)
-    raw_means = np.full(sums.shape, np.nan, dtype=np.float64)
-    np.divide(sums, ext_denoms, where=ext_denoms > 0, out=raw_means)
-    if np.any(np.isnan(raw_means)):
-        warnings.warn("nan means exist in output")
+    :param dict regions: Dictionary of sums corresponding to genomic regions.
+    """
+    sums = np.array([regions[reg]["sums"] for reg in regions])
+    denoms = np.array([regions[reg]["denoms"] for reg in regions])
+    mut_facs = np.array([regions[reg]["mut_facs"] for reg in regions])
+    tot_facs = mut_facs[:, :-1].sum(1)
+    tot_pairs = mut_facs[:, :-1].sum(1)
+    facs = mut_facs[:, :-1] / (tot_facs / tot_pairs)[:, None]
+    raw_means = np.zeros(sums.shape[1:], dtype=np.float64)
+    raw_means[:, :-1] = sums[:, :-1].sum(0) / facs.sum(0)[:, None]
+    raw_means[:, -1] = sums[:, -1].sum(0) / denoms[:, -1].sum()
     means = [raw_means[i] for i in range(len(raw_means))]
-
     return means
 
 
-def weighted_means_across_replicates(replicates):
+def _means_across_replicates(replicates):
+    """
+    Compute mean statistics across a list of replicates. 
+    """
+    rep_dict = {i: replicate for i, replicate in enumerate(replicates)}
+    return means_across_regions(rep_dict)
+
+
+def _weighted_means_across_replicates(replicates):
     """
     Operates on a list of dictionaries; wraps `weighted_means_across_regions`.
     """
     rep_dict = {i: replicate for i, replicate in enumerate(replicates)}
-    means = weighted_means_across_regions(rep_dict)
-
-    return means
-
-
-### DEPRECATED. this stuff doesn't work well!!
-
-
-def compute_weighted_denoms(mut_facs, denoms):
-    """
-    Compute weighted denominators for D+.
-
-    Weighting takes the form of adjusting the effective number of locus pairs
-    (the denominator) of each bin in inverse proportion to its mean product
-    of locus mutation rates u_L * u_R (relative to the average across bins).
-
-    :param mut_facs: Binned sums of locus-pair mutation rates u_L * u_R. The 
-        last element should be the sum of locus mutation rates, which is not 
-        used here.
-    :param denoms: Binned counts of locus pairs. It is assumed that the last
-        element contains the denominator for H (the number of loci), which is
-        ignored here and returned as the last element of `weights`.
-
-    :returns: Weights for adjusting D+
-    :rtype: np.ndarray
-    """
-    num_sites = denoms[-1]
-    mut_prods = mut_facs[:-1]
-    locus_pairs = denoms[:-1]
-    #factor = mut_prods.sum() / locus_pairs.sum()
-    factor = (mut_facs[-1] / num_sites) ** 2
-    _weighted_denoms = mut_prods / factor 
-    weighted_denoms = np.append(_weighted_denoms, num_sites)
-
-    return weighted_denoms
-
-
-def compute_weights(mut_facs, denoms):
-    """
-    Compute the ratio of the weighted D+ denominator over the unweighted one.
-    """
-    weighted_denoms = compute_weighted_denoms(mut_facs, denoms)
-    weights = weighted_denoms / denoms
-
-    return weights
-
-
-
+    return  weighted_means_across_regions(rep_dict)
