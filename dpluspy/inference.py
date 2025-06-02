@@ -12,7 +12,8 @@ import sys
 import os
 import pickle
 
-from . import utils, bootstrapping, DplusStats
+from . import utils, bootstrapping
+from .datastructures import DPlusStats
 
 
 _out_of_bounds = 1e10
@@ -91,7 +92,7 @@ def compute_bin_stats(
 
     if approx == "midpoint":
         midpoints = (bins[:-1] + bins[1:]) / 2
-        model = DplusStats.from_moments(
+        model = DPlusStats.from_moments(
             graph, 
             sampled_demes, 
             sample_times=sample_times, 
@@ -102,7 +103,7 @@ def compute_bin_stats(
 
     elif approx == "trapezoid":
         raise ValueError("This method is forbidden as it is too inaccurate")
-        y_edges = DplusStats.from_moments(
+        y_edges = DPlusStats.from_moments(
             graph, 
             sampled_demes, 
             sample_times=sample_times, 
@@ -112,10 +113,10 @@ def compute_bin_stats(
         )
         y = [(y0 + y1) / 2 for y0, y1 in zip(y_edges[:-2], y_edges[1:-1])]
         y.append(y_edges[-1])
-        model = DplusStats(y, pop_ids=sampled_demes)
+        model = DPlusStats(y, pop_ids=sampled_demes)
 
     elif approx == "simpsons":
-        y_edges = DplusStats.from_moments(
+        y_edges = DPlusStats.from_moments(
             graph, 
             sampled_demes, 
             sample_times=sample_times, 
@@ -124,7 +125,7 @@ def compute_bin_stats(
             phased=phased
         )
         midpoints = (bins[:-1] + bins[1:]) / 2
-        y_mids = DplusStats.from_moments(
+        y_mids = DPlusStats.from_moments(
             graph, 
             sampled_demes, 
             sample_times=sample_times,
@@ -137,11 +138,10 @@ def compute_bin_stats(
             for i in range(len(midpoints))
         ]
         y.append(y_edges[-1])
-        model = DplusStats(y, pop_ids=sampled_demes)
+        model = DPlusStats(y, pop_ids=sampled_demes)
 
     else:
-        raise ValueError("invalid approximation method!")
-
+        raise ValueError("Unrecognized approximation method")
     return model
 
 
@@ -218,7 +218,6 @@ def _object_func(
     if verbose > 0 and _counter % verbose == 0:
         pstr = ''.join([f'{float(p):>10.3}' for p in params])
         print(f'{_counter:<5}{np.round(ll, 2):>10} [{pstr}]')
-
     return -ll
 
 
@@ -366,7 +365,6 @@ def optimize(
         sample_times.append(builder["demes"][idx]["epochs"][-1]["end_time"])
         sampled_demes.append(pop)
     
-    warn = None
     args = (
         builder,
         options,
@@ -453,7 +451,6 @@ def optimize(
         fit_params, fopt, output_dict = ret
         num_iter = output_dict['nit']
         flag = output_dict['warnflag']
-        warn = output_dict["task"]
 
     else:
         return
@@ -497,57 +494,8 @@ def optimize(
             print(str(graph))
         else:
             demes.dump(graph, output)
-
     _counter = 0
-    
     return param_names, fit_params, ll
-
-
-def print_status(n_calls, ll, params):
-    """
-    Print the number of function calls, the log-likelihood, and the current 
-    parameter values.
-    """
-    t = utils._current_time()
-    _n = f'{n_calls:<4}'
-    if isinstance(ll, float):
-        _ll = f'{np.round(ll, 2):>10}'
-    else:
-        _ll = f'{ll:>10}'
-    fmt_p = []
-    for x in params:
-        if isinstance(x, str):
-            fmt_p.append(f'{x:>10}')
-        else:
-            if x > 1:
-                fmt_p.append(f'{np.round(x, 1):>10}')
-            else:
-                sci = np.format_float_scientific(x, 2, trim='k')
-                fmt_p.append(f'{sci:>10}')
-    _p = ''.join(fmt_p)
-    print(t, _n, _ll, '[', _p, ']')
-
-    return
-
-
-def format_params(params):
-    """
-    returns strings
-    
-    """
-    formatted = []
-    for param in params:
-        if param >= 1:
-            formatted.append(str(np.round(param, 1)))
-        elif param >= 1e-3:
-            formatted.append(np.format_float_positional(param, precision=3))
-        else:
-            formatted.append(np.format_float_scientific(param, precision=2))
-
-    return formatted
-
-
-## computing log-likelihoods
 
 
 _inv_varcov_cache = dict()
@@ -561,7 +509,6 @@ def composite_ll(model, means, varcovs, use_H=False):
         ll = ll_per_bin(model, means, varcovs).sum()
     else:
         ll = ll_per_bin(model[:-1], means[:-1], varcovs[:-1]).sum()
-
     return ll
 
 
@@ -584,7 +531,6 @@ def ll_per_bin(xs, mus, varcovs):
             add_to_cache = {"varcov": varcovs[i], "inv_varcov": inv_varcov}
             _inv_varcov_cache[i] = add_to_cache
         bin_ll[i] = _ll(xs[i], mus[i], inv_varcov)
-
     return bin_ll
 
 
@@ -764,7 +710,6 @@ def compute_uncerts(
         uncerts = np.sqrt(np.diag(np.linalg.inv(G)))
     else:
         return
-
     return param_names, params, uncerts
 
 
@@ -829,7 +774,6 @@ def _compute_godambe_matrix(
     J = J / len(bootstrap_reps)
     J_inv = np.linalg.inv(J)
     G = np.matmul(np.matmul(H,  J_inv), H)
-
     return G, H, J
 
 
@@ -866,7 +810,6 @@ def _compute_hessian(p0, obj_func, model_args, means, varcovs, delta=0.01):
                 element = (fpp - fpm - fmp + fmm) / (4 * hs[i] * hs[j])
             H[i, j] = element
             H[j, i] = element
-
     return H
 
 
@@ -883,11 +826,7 @@ def _compute_gradient(p0, obj_func, model_args, means, varcovs, delta=0.01):
         p[i] = p0[i] - hs[i]
         fm = obj_func(p, means, varcovs, model_args)
         gradient[i] = (fp - fm) / (2 * hs[i])
-
     return gradient
-
-
-## Utilities and printing functions
 
 
 def graph_data_overlap(graph, pop_ids):
@@ -902,7 +841,6 @@ def graph_data_overlap(graph, pop_ids):
         graph = demes.load(graph)
     deme_names = [d.name for d in graph.demes]
     overlaps = [pop for pop in pop_ids if pop in deme_names]
-
     return overlaps
 
 
@@ -921,6 +859,5 @@ def _load_parameters(graph_file, param_file):
     builder = Inference._get_demes_dict(graph_file)
     options = Inference._get_params_dict(param_file)
     pnames, params, *_  = Inference._set_up_params_and_bounds(options, builder)
-    
     return pnames, params
 

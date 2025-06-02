@@ -9,7 +9,7 @@ import numpy as np
 from . import utils
 
 
-class DplusStats(list):
+class DPlusStats(list):
     """
     A class for holding D+ and H statistics.
     """
@@ -22,12 +22,11 @@ class DplusStats(list):
         :param pop_ids: List of population IDs.
         :type pop_ids: list
         """
-        ret = super(DplusStats, self).__new__(self, data, pop_ids=None)
+        ret = super(DPlusStats, self).__new__(self, data, pop_ids=None)
         if hasattr(data, "pop_ids"):
             ret.num_pops = data.pop_ids
         else:
             ret.num_pops = pop_ids
-
         return ret
 
     def __init__(self, *args, **kwargs):
@@ -104,6 +103,5 @@ class DplusStats(list):
             for l, x in enumerate(stat):
                 stats[l][i] = x
         stats.append(y.H())
-
         return cls(stats, pop_ids=sampled_demes)
     

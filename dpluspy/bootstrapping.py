@@ -125,7 +125,7 @@ def subset_varcovs(varcovs, pop_ids, to_pops):
     return new_varcovs
 
 
-def load_raw_statistics(filenames):
+def load_raw_stats(filenames):
     """
     Load statistics from .pkl files. 
 
@@ -170,7 +170,7 @@ def load_bootstrap_means(filename, to_pops=None, size=None):
     return ret_means, bins, ret_pop_ids
 
 
-def bootstrap_statistics(regions, num_reps=None, weighted=False):
+def bootstrap_stats(regions, num_reps=None, weighted=False):
     """
     Perform a bootstrap to obtain covariance matrices for D+ and H statistics,
     estimated in genomic blocks. Operates upon sums of D+, H, and their
@@ -187,10 +187,10 @@ def bootstrap_statistics(regions, num_reps=None, weighted=False):
     if num_reps is None:
         num_reps = len(regions)
     if weighted:
-        means = weighted_means_across_regions(means)
+        means = weighted_means_across_regions(regions)
     else:
         means = means_across_regions(regions)
-    bootstrap_means = get_bootstrap_replicates(
+    bootstrap_means = get_bootstrap_reps(
         regions, num_reps=num_reps, weighted=weighted
     )
     varcovs = []
@@ -204,7 +204,7 @@ def bootstrap_statistics(regions, num_reps=None, weighted=False):
     return means, varcovs
 
 
-def get_bootstrap_replicates(regions, num_reps=None, weighted=False):
+def get_bootstrap_reps(regions, num_reps=None, weighted=False):
     """
     Perform a bootstrap and return a list of replicate means.
 
@@ -236,11 +236,11 @@ def means_across_regions(regions):
     
     :param dict regions: Dictionary of sums corresponding to genomic regions.
     """
-    sums = np.array([regions[reg]["sums"] for reg in regions])
-    denoms = np.array([regions[reg]["denoms"] for reg in regions])
+    sums = np.array([regions[key]["sums"] for key in regions])
+    denoms = np.array([regions[key]["denoms"] for key in regions])
     raw_means = np.zeros(sums.shape[1:], dtype=np.float64)
-    raw_means[:, :-1] = sums[:, :-1].sum(0) / denoms.sum(0)[:, None]
-    raw_means[:, -1] = sums[:, -1].sum(0) / denoms[:, -1].sum()
+    raw_means[:-1, :] = sums[:, :-1].sum(0) / denoms[:, :-1].sum(0)[:, None]
+    raw_means[-1, :] = sums[:, -1].sum(0) / denoms[:, -1].sum()
     means = [raw_means[i] for i in range(len(raw_means))]
     return means
 
@@ -252,15 +252,15 @@ def weighted_means_across_regions(regions):
     
     :param dict regions: Dictionary of sums corresponding to genomic regions.
     """
-    sums = np.array([regions[reg]["sums"] for reg in regions])
-    denoms = np.array([regions[reg]["denoms"] for reg in regions])
-    mut_facs = np.array([regions[reg]["mut_facs"] for reg in regions])
+    sums = np.array([regions[key]["sums"] for key in regions])
+    denoms = np.array([regions[key]["denoms"] for key in regions])
+    mut_facs = np.array([regions[key]["mut_facs"] for key in regions])
+    tot_pairs = denoms[:, :-1].sum(1)
     tot_facs = mut_facs[:, :-1].sum(1)
-    tot_pairs = mut_facs[:, :-1].sum(1)
     facs = mut_facs[:, :-1] / (tot_facs / tot_pairs)[:, None]
     raw_means = np.zeros(sums.shape[1:], dtype=np.float64)
-    raw_means[:, :-1] = sums[:, :-1].sum(0) / facs.sum(0)[:, None]
-    raw_means[:, -1] = sums[:, -1].sum(0) / denoms[:, -1].sum()
+    raw_means[:-1, :] = sums[:, :-1].sum(0) / facs.sum(0)[:, None]
+    raw_means[-1, :] = sums[:, -1].sum(0) / denoms[:, -1].sum()
     means = [raw_means[i] for i in range(len(raw_means))]
     return means
 

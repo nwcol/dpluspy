@@ -26,7 +26,6 @@ def _generate_pairs(pop_ids):
     for i, pop_i in enumerate(pop_ids):
         for pop_j in pop_ids[i:]:
             pairs.append((pop_i, pop_j))
-
     return pairs
 
 
@@ -42,7 +41,6 @@ def _get_H_names(pop_ids):
     for i, pop_id0 in enumerate(pop_ids):
         for pop_id1 in pop_ids[i:]:
             names.append(f"H_{pop_id0}_{pop_id1}")
-
     return names
 
 
@@ -58,7 +56,6 @@ def _get_Dplus_names(pop_ids):
     for i, pop_id0 in enumerate(pop_ids):
         for pop_id1 in pop_ids[i:]:
             names.append(f"D+_{pop_id0}_{pop_id1}")
-
     return names
 
 
@@ -75,7 +72,6 @@ def _get_stat_names(pop_ids):
     """
     Dplus_names = _get_Dplus_names(pop_ids)
     H_names = _get_H_names(pop_ids)
-
     return (Dplus_names, H_names)
 
 
@@ -99,7 +95,6 @@ def _get_latex_names(pop_ids, statistic="D^+"):
                 names.append(rf"${statistic}_{{\text{{{pop0}}}}}$")
             else:
                 names.append(rf"${statistic}_{{\text{{{pop0}, {pop1}}}}}$")
-
     return names
 
 
@@ -157,7 +152,6 @@ def _read_bed_file_positions(bed_file):
     regions = _read_bed_file(bed_file)[0]
     mask = _regions_to_mask(regions)
     positions = np.nonzero(~mask)[0]
-    
     return positions
 
 
@@ -183,7 +177,6 @@ def _write_bed_file(filename, regions, chrom):
         fout.write('#CHROM\tSTART\tEND\n'.encode())
         for start, end in regions:
             fout.write(f'{chrom}\t{start}\t{end}\n'.encode())
-
     return 
 
 
@@ -206,7 +199,6 @@ def _regions_to_mask(regions, length=None):
         elif end > length:
             end = length
         mask[start:end] = 0
-
     return mask
 
 
@@ -219,7 +211,6 @@ def _mask_to_regions(mask):
     starts = np.where(jumps == -1)[0]
     ends = np.where(jumps == 1)[0]
     regions = np.stack([starts, ends], axis=1)
-
     return regions
 
 
@@ -241,7 +232,6 @@ def _intersect_regions(region_arrs):
             coverage[start:end] += 1
     mask = coverage < len(region_arrs)
     intersection = _mask_to_regions(mask)
-
     return intersection
 
 
@@ -346,7 +336,6 @@ def _write_bedgraph_file(filename, regions, data, chrom_num, sep=None):
             line_data = [str(data[field][i]) for field in fields]
             line = sep.join(interval + line_data) + '\n'
             fout.write(line.encode())
-
     return
 
 
@@ -361,7 +350,6 @@ def _read_bedgraph_map(filename, map_col=None, sep=None):
     if map_col is None:
         map_col = list(data.keys())[-1]
     map_coords = data[map_col]
-
     return coords, map_coords
 
 
@@ -389,7 +377,6 @@ def _read_hapmap_map(filename, pos_col="Position(bp)", map_col="Map(cM)"):
             map_coords.append(split_line[map_idx])
     coords = np.array(coords, dtype=np.int64)
     map_coords = np.array(map_coords, dtype=np.float64)
-
     return coords, map_coords
 
 
