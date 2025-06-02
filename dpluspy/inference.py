@@ -35,13 +35,14 @@ def load_stats(data_file, graph=None, to_pops=None):
     """
     with open(data_file, "rb") as fin:
         data = pickle.load(fin)
-    if graph:
+    if graph is not None:
         _pop_ids = data["pop_ids"]
         to_pops = graph_data_overlap(graph, _pop_ids)
     if to_pops is not None:
-        means = bootstrapping.subset_means(data["means"], _pop_ids, pop_ids)
+        means = bootstrapping.subset_means(data["means"], _pop_ids, to_pops)
         varcovs = bootstrapping.subset_varcovs(
-            data["varcovs"], _pop_ids, pop_ids)
+            data["varcovs"], _pop_ids, to_pops)
+        pop_ids = to_pops
     else:
         pop_ids = data['pop_ids']
         means = data['means']

@@ -193,14 +193,7 @@ def bootstrap_stats(regions, num_reps=None, weighted=False):
     bootstrap_means = get_bootstrap_reps(
         regions, num_reps=num_reps, weighted=weighted
     )
-    varcovs = []
-    for i in range(len(means)):
-        bin_means = np.array([_means[i] for _means in bootstrap_means])
-        varcov_matrix = np.cov(bin_means.T)
-        # This occurs when the bootstrap involves only one statistic
-        if varcov_matrix.shape == ():
-            varcov_matrix = varcov_matrix.reshape((1, 1))
-        varcovs.append(varcov_matrix)
+    varcovs = compute_varcovs(bootstrap_means)
     return means, varcovs
 
 
@@ -229,6 +222,23 @@ def get_bootstrap_reps(regions, num_reps=None, weighted=False):
         bootstrap_means.append(rep_means)
     return bootstrap_means
 
+
+def compute_varcovs(bootstrap_means):
+    """
+    Compute a list of variance-covariance matrices (one for each recombination 
+    bin, and one for H) from a list of bootstrap replicate means.
+
+    :param list bootstrap_means: A list of bootstrap means.
+    """
+    varcovs = []
+    for i in range(len(bootstrap_means[0])):
+        bin_means = np.array([_means[i] for _means in bootstrap_means])
+        varcov_matrix = np.cov(bin_means.T)
+        # This occurs when the bootstrap involves only one statistic
+        if varcov_matrix.shape == ():
+            varcov_matrix = varcov_matrix.reshape((1, 1))
+        varcovs.append(varcov_matrix)
+    return varcovs
 
 def means_across_regions(regions):
     """

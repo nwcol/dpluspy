@@ -6,4 +6,4 @@ from . import datastructures
 from . import inference 
 from . import plotting
 
-DplusStats = datastructures.DplusStats
+DplusStats = datastructures.DPlusStats

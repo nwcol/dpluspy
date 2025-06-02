@@ -1,4 +1,4 @@
-#chrom   chromStart  chromEnd    mut
+#chrom   chromStart  chromEnd    mut_map
 chr0    0   1   1.0e-8
 chr0    1   3   1.25e-8
 chr0    3   4   5.0e-9

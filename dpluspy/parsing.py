@@ -622,7 +622,7 @@ def compute_denominators(
 
 def compute_mutation_factors(
     mut_map_file,
-    mut_map_col=None,
+    mut_map_col="mut_map",
     bed_file=None,
     rec_map_file=None,
     pos_col="Position(bp)",
@@ -1518,7 +1518,10 @@ def _load_mutation_map(filename, positions, map_col="mut_map"):
     :returns: Site-resolution mutation map array.
     """
     if ".bedgraph" in filename or ".csv" in filename:
-        data = pandas.read_csv(filename)
+        if ".csv" in filename: 
+            data = pandas.read_csv(filename, sep=",")
+        else:
+            data = pandas.read_csv(filename, sep=r"\s+")
         coords = np.array(data["chromEnd"])
         tot_map = np.array(data[map_col])
         if np.any(positions > coords[-1]):
