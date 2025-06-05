@@ -145,29 +145,43 @@ def load_raw_stats(filenames):
     return regions
 
 
-def load_bootstrap_means(filename, to_pops=None, size=None):
-    # load list of bootstrap means
+def load_bootstrap_reps(filename, to_pops=None, num_reps=None):
+    """
+    Load varcovs, means and replicate means from a pickled dictionary with
+    keys "pop_ids", "varcovs", "means", "bins" and "replicates". "replicates"
+    should be a list of bootstrap replicate means.
+
+    :param str filename: Pathname of .pkl file.
+    :parma list to_pops: Optional list of populations to subset to (default 
+        None)
+    :param int num_reps: Optional number of bootstrap replicates to load 
+        (if None, returns all replicates). 
+
+    :rtype: dict
+    """
     with open(filename, "rb") as fin:
-        contents = pickle.load(fin)
-    if size is not None:
-        all_means = contents["bootstrap_means"]
-        samples = np.random.choice(
-            np.arange(len(all_means)), size=size, replace=False
-        )
-        bootstrap_means = [all_means[i] for i in samples]
-    else:
-        bootstrap_means = contents["bootstrap_means"]
-    pop_ids = contents["pop_ids"]
-    if to_pops is None:
-        ret_means = bootstrap_means
-        ret_pop_ids = pop_ids
-    else:
-        ret_means = []
-        for means in bootstrap_means:
-            ret_means.append(utils.subset_means(means, pop_ids, to_pops))
-        ret_pop_ids = to_pops
-    bins = contents["bins"]
-    return ret_means, bins, ret_pop_ids
+        archive = pickle.load(fin)
+    pop_ids = archive["pop_ids"]
+    bins = archive["bins"]
+    means = archive["means"]
+    varcovs = archive["varcovs"]
+    replicates = archive["replicates"]
+    if num_reps is not None:
+        if num_reps > len(replicates):
+            raise ValueError("`num_reps` exceeds number of replicates")
+    if to_pops is not None:
+        means = subset_means(means, pop_ids, to_pops)
+        varcovs = subset_varcovs(varcovs, pop_ids, to_pops)
+        replicates = [subset_means(rep, pop_ids, to_pops) for rep in replicates]
+        pop_ids = to_pops
+    ret = {
+        "bins": bins,
+        "pop_ids": pop_ids,
+        "means": means,
+        "varcovs": varcovs,
+        "replicates": replicates
+    }
+    return ret
 
 
 def bootstrap_stats(regions, num_reps=None, weighted=False):

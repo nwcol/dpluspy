@@ -27,8 +27,8 @@ def load_stats(data_file, graph=None, to_pops=None):
 
     :param data_file: Pathname of a .pkl file holding statistics- minimally
         'pop_ids', 'bins', and corresponding 'means' and 'varcovs'.
-    :param graph_file: Optional of a .yaml Demes file- if given, subset to the
-        populations common to the graph and data (default None).
+    :param graph_file: Optional pathname of a .yaml Demes file- if given, 
+        subsets to the populations common to graph and data (default None).
     :param to_pops: Optional list of populations to subset to.
 
     :returns: List of population IDs, bins, means, and varcovs.
@@ -73,12 +73,15 @@ def compute_bin_stats(
     :param u: Mutation rate parameter (defaults to 1).
     :param bins: Recombination distance bin edges, in units of ``r``.
     :param approx: Method for approximating quantities in each bin; defaults
-        to 'simpsons'.
+        to 'simpsons' if None.
     :param phased: If True, compute phased expectations for cross-population
         statistics (default False).
 
     :returns: A DPlusStats instance holding computed statistics.
     """
+    if approx is None:
+        approx = "simpsons"
+
     if approx not in ("midpoint", "trapezoid", "simpsons"):
         raise ValueError("Unrecognized approximation method")
     
@@ -168,11 +171,12 @@ def _object_func(
     afs=None,
     L=None,
     fit_mutation_rate=False,
-    fit_ancestral_misid=False
+    fit_ancestral_misid=False,
+    approx_method=None
 ):
     """
-    The objective function for model optimization using ``D+``  (and optionally 
-    ``H`` or the SFS). 
+    The objective function for model optimization using D+ (and optionally H
+    or the SFS). 
     """
     if lower_bounds is not None and np.any(params < lower_bounds):
         return _out_of_bounds
@@ -198,7 +202,8 @@ def _object_func(
         sample_times=sample_times,
         u=u,
         bins=bins,
-        phased=False
+        phased=False,
+        approx=approx_method
     )
     ll = composite_ll(model, means, varcovs, use_H=use_H)
 
@@ -252,7 +257,8 @@ def optimize(
     fit_mutation_rate=False,
     u_bounds=None,
     fit_ancestral_misid=False,
-    misid_guess=None
+    misid_guess=None,
+    approx_method=None
 ):
     """
     Optimize a demographic model given empirical ``D+`` statistics and a set of
@@ -294,6 +300,9 @@ def optimize(
         (default False).
     :param misid_guess: Initial guess for the misid probability (defaults to 
         0.02).
+    :param str approx_method: Optional method to use for approximating E[D+] 
+        within bins (defaults to "simpsons"). The other option is "midpoint",
+        which is about two times faster but slightly less precise.
 
     :returns: List of parameter names, optimized values, and log-likelihood.
     """
@@ -384,7 +393,8 @@ def optimize(
         afs,
         L,
         fit_mutation_rate,
-        fit_ancestral_misid
+        fit_ancestral_misid,
+        approx_method
     )
     
     methods = ['fmin', 'powell', 'bfgs', 'lbfgsb']
@@ -588,7 +598,8 @@ def compute_uncerts(
     fitted_u=None,
     bootstrap_reps=None,
     delta=0.01,
-    method="godambe"
+    method="godambe",
+    approx_method=None
 ):
     """
     Compute parameter estimates using either the Fisher information matrix 
@@ -615,6 +626,9 @@ def compute_uncerts(
         either 'fisher'- which does not require bootstrap replicates but 
         understimates variance because genetic linkage violates assumptions-
         or 'godambe', which requires bootstrap replicates.
+    :param str approx_method: Optional method to use for approximating E[D+] 
+        within bins (defaults to "simpsons"). The other option is "midpoint",
+        which is about two times faster but slightly less precise.
 
     :returns: A list of parameter names, of input parameter values, and 
         estimated standard deviations of parameter estimates.
@@ -652,7 +666,8 @@ def compute_uncerts(
         sample_times, 
         bins, 
         u,
-        fitted_mutation_rate
+        fitted_mutation_rate,
+        approx_method
     )
 
     def model_func(params, args=()):
@@ -666,7 +681,8 @@ def compute_uncerts(
             sample_times, 
             bins, 
             u, 
-            fitted_mutation_rate
+            fitted_mutation_rate,
+            approx_method
         ) = args
         if fitted_mutation_rate:
             u = params[-1]
@@ -678,7 +694,8 @@ def compute_uncerts(
             sample_times=sample_times,
             u=u,
             bins=bins,
-            phased=False
+            phased=False,
+            approx=approx_method
         )
         return model
 
@@ -754,7 +771,6 @@ def _compute_godambe_matrix(
     )
     if verbose:
         print(_current_time(), "computed Hessian")
-
     if get_hessian:
         return H
 

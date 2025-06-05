@@ -98,9 +98,6 @@ def _get_latex_names(pop_ids, statistic="D^+"):
     return names
 
 
-## BED files and genetic masks
-
-
 def _read_bed_file(filename):
     """
     Load regions from a BED file as an array. Expects the structure 
@@ -380,9 +377,6 @@ def _read_hapmap_map(filename, pos_col="Position(bp)", map_col="Map(cM)"):
     return coords, map_coords
 
 
-## Recombination map math
-
-
 def _map_function(r):
     """
     Haldane's map function; transforms distances in recombination distance `r` 
@@ -415,17 +409,11 @@ def _inverse_map_function(d):
     return (1 - np.exp(2 * -d)) / 2
 
 
-## Printouts
-
-
 def _current_time():
     """
     Return a string giving the time and date with yyyy-mm-dd format.
     """
     return '[' + datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S') + ']'
-
-
-## Simulation helper functions
 
 
 def _increment1(x):

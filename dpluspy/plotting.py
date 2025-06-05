@@ -52,6 +52,8 @@ def plot_d_plus_curves(
     order. At minimum, you must give `bins` and either `means` and `varcovs` or
     `models`.
 
+    Each statistic is plotted in its own panel.
+
     :param models: Models to plot, specified as DplusStats instances.
     :param means: One or more sets of D+ means.
     :param varcovs: One or more sets of D+ varcovs, given in the same order as
@@ -103,14 +105,14 @@ def plot_d_plus_curves(
 
     # check labels and build them if necessary
     if len(labels) == 0:
-        if len(models) == 1:
-            labels = ["Model"]
-        else:
-            labels = [f"Model {i}" for i in range(len(models))]
         if len(means) == 1:
-            labels += ["Data"]
+            labels = ["Data"]
         else:
-            labels += [f"Data {i}" for i in range(len(means))]
+            labels = [f"Data {i}" for i in range(len(means))]
+        if len(models) == 1:
+            labels += ["Model"]
+        else:
+            labels += [f"Model {i}" for i in range(len(models))]
 
     if len(labels) != len(models) + len(means):
         raise ValueError('Label length mismatches models, data')
@@ -319,8 +321,8 @@ def plot_parameters(
             ax = axs[i, j]
             ax.ticklabel_format(useOffset=False)
             if j == i:
-                ax.annotate(name_i, (0.35, 0.5), xycoords='axes fraction',
-                            fontsize=14)
+                ax.annotate(name_i, (0.3, 0.5), xycoords='axes fraction',
+                            fontsize=12)
                 continue 
             x = ax.scatter(params[:, j], params[:, i], marker='o', 
                            c='none', edgecolors='black')
@@ -330,17 +332,18 @@ def plot_parameters(
         plt.savefig(out, dpi=244, bbox_inches='tight')
     if show:
         plt.show()
-
     return
 
 
 def plot_gamma_pdf(shape, scale):
-
+    """
+    Plot a PDF of the gamma distribution with parameters `shape` and `scale`.
+    """
     fig, ax = plt.subplots(layout='constrained')
     cutoff = scipy.stats.gamma.ppf(1-1e-5, shape, scale=scale)
     x = np.linspace(0, cutoff, 1000)
     y = scipy.stats.gamma.pdf(x, shape, scale=scale)
     ax.plot(x, y)
     plt.show()
-
     return 
+

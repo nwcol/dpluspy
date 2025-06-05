@@ -1,5 +1,5 @@
 """
-A class for holding expected ``D+`` and ``H`` statistics.
+Houses a class for holding expected D+ and H statistics.
 """
 
 import demes
@@ -11,16 +11,15 @@ from . import utils
 
 class DPlusStats(list):
     """
-    A class for holding D+ and H statistics.
+    A class for holding expected D+ and H statistics.
     """
+
     def __new__(self, data, pop_ids=None):
         """
         Instantiate from a list of data arrays.
 
-        :param data: List holding arrays of expected or mean statistics.
-        :type data: list
-        :param pop_ids: List of population IDs.
-        :type pop_ids: list
+        :param list data: List holding arrays of expected or mean statistics.
+        :param list pop_ids: List of population IDs.
         """
         ret = super(DPlusStats, self).__new__(self, data, pop_ids=None)
         if hasattr(data, "pop_ids"):
@@ -30,9 +29,6 @@ class DPlusStats(list):
         return ret
 
     def __init__(self, *args, **kwargs):
-        """
-        
-        """
         if len(args) == 1 and hasattr(args[0], "__iter__"):
             list.__init__(self, args[0])
         else:
@@ -73,22 +69,31 @@ class DPlusStats(list):
         phased=False
     ):
         """
-        Instantiate from expected values computed using moments.LD.
+        Compute expected statistics given a Demes graph using moments.Demes.LD.
 
-        :param graph: Demes graph or pathname specifying a demes-format .yaml 
-            file.
-        :param sampled_demes:
-        :param sample_times:
-        :param rs:
-        :param u: 
+        :param str, demes.Graph graph: Demes graph, or pathname to a a demes-
+            format .yaml file.
+        :param list sampled_demes: List of demes for which to compute expected 
+            statistics.
+        :param list sample_times: Optional list of times at which demes are 
+            sampled. Sample times default to deme end times.
+        :param arr rs: List or array of recombination fractions at which to
+            compute expected statistics.
+        :param float u: The mutation rate to use for computing expectations. 
         :param phased: If True, compute phased two-population expectations 
             (default False).
+
+        :returns: DPlusStats instance holding expected D+ and H statistics.
         """
         if isinstance(graph, str):
             graph = demes.load(graph)
         y = moments.Demes.LD(
-            graph, sampled_demes, sample_times=sample_times,
-            theta=None, r=rs, u=u
+            graph, 
+            sampled_demes,
+            sample_times=sample_times,
+            theta=None, 
+            r=rs, 
+            u=u
         )
         num_demes = len(sampled_demes)
         num_stats = (num_demes ** 2 + num_demes) // 2 
