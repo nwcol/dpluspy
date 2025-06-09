@@ -145,45 +145,6 @@ def load_raw_stats(filenames):
     return regions
 
 
-def load_bootstrap_reps(filename, to_pops=None, num_reps=None):
-    """
-    Load varcovs, means and replicate means from a pickled dictionary with
-    keys "pop_ids", "varcovs", "means", "bins" and "replicates". "replicates"
-    should be a list of bootstrap replicate means.
-
-    :param str filename: Pathname of .pkl file.
-    :parma list to_pops: Optional list of populations to subset to (default 
-        None)
-    :param int num_reps: Optional number of bootstrap replicates to load 
-        (if None, returns all replicates). 
-
-    :rtype: dict
-    """
-    with open(filename, "rb") as fin:
-        archive = pickle.load(fin)
-    pop_ids = archive["pop_ids"]
-    bins = archive["bins"]
-    means = archive["means"]
-    varcovs = archive["varcovs"]
-    replicates = archive["replicates"]
-    if num_reps is not None:
-        if num_reps > len(replicates):
-            raise ValueError("`num_reps` exceeds number of replicates")
-    if to_pops is not None:
-        means = subset_means(means, pop_ids, to_pops)
-        varcovs = subset_varcovs(varcovs, pop_ids, to_pops)
-        replicates = [subset_means(rep, pop_ids, to_pops) for rep in replicates]
-        pop_ids = to_pops
-    ret = {
-        "bins": bins,
-        "pop_ids": pop_ids,
-        "means": means,
-        "varcovs": varcovs,
-        "replicates": replicates
-    }
-    return ret
-
-
 def bootstrap_stats(regions, num_reps=None, weighted=False):
     """
     Perform a bootstrap to obtain covariance matrices for D+ and H statistics,

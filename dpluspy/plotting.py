@@ -289,6 +289,7 @@ def plot_d_plus_curves(
 def plot_parameters(
     pnames, 
     params,
+    lls=None,
     params_to_plot=None,
     ax_size=1.5,
     out=None,
@@ -300,6 +301,7 @@ def plot_parameters(
     :param pnames: List of parameter names.
     :param params: Array of fitted parameters from multiple replicates. Shape
         should be (number of replicates, number of parameters)
+    :param list lls: Optional list of log-likelihoods, used to color points.
     :param params_to_plot: Optional list of parameters in `pnames` to plot.
         (default None).
     :param ax_size: Subplot size (default 1.5).
@@ -316,6 +318,9 @@ def plot_parameters(
     figsize = (num_stats * ax_size, num_stats * ax_size)
     fig, axs = plt.subplots(num_stats, num_stats, figsize=figsize, 
         sharey='row', sharex='col', layout='constrained')
+    if lls is not None:
+        norm_lls = mpl.colors.Normalize(vmin=np.min(lls), vmax=np.max(lls))(lls)
+        colors = plt.cm.viridis(norm_lls)
     for i, name_i in enumerate(pnames):
         for j, name_j in enumerate(pnames):
             ax = axs[i, j]
@@ -323,11 +328,19 @@ def plot_parameters(
             if j == i:
                 ax.annotate(name_i, (0.3, 0.5), xycoords='axes fraction',
                             fontsize=12)
-                continue 
-            x = ax.scatter(params[:, j], params[:, i], marker='o', 
-                           c='none', edgecolors='black')
+            else:
+                if lls is None:
+                    ax.scatter(params[:, j], params[:, i], marker='o', 
+                        c='none', edgecolors='black')
+                else:
+                    #ax.scatter(params[:, j], params[:, i], marker="o",
+                    #    c="none", edgecolors=colors)
+                    cmap = ax.scatter(params[:, j], params[:, i], marker="x",
+                        c=lls, cmap="viridis")
             if i == num_stats - 1:
                 ax.tick_params(axis='x', labelrotation=90)
+    if lls is not None:
+        fig.colorbar(cmap, ax=axs[-1, -1])
     if out:
         plt.savefig(out, dpi=244, bbox_inches='tight')
     if show:

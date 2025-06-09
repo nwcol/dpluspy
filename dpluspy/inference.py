@@ -8,11 +8,10 @@ import numpy as np
 import moments
 from moments.Demes import Inference
 import scipy
-import sys
 import os
 import pickle
 
-from . import utils, bootstrapping
+from . import bootstrapping
 from .datastructures import DPlusStats
 
 
@@ -35,8 +34,8 @@ def load_stats(data_file, graph=None, to_pops=None):
     """
     with open(data_file, "rb") as fin:
         data = pickle.load(fin)
+    _pop_ids = data["pop_ids"]
     if graph is not None:
-        _pop_ids = data["pop_ids"]
         to_pops = graph_data_overlap(graph, _pop_ids)
     if to_pops is not None:
         means = bootstrapping.subset_means(data["means"], _pop_ids, to_pops)
@@ -49,6 +48,49 @@ def load_stats(data_file, graph=None, to_pops=None):
         varcovs = data['varcovs']
     bins = data["bins"]
     return pop_ids, bins, means, varcovs
+
+
+def load_bootstrap_reps(filename, graph=None, to_pops=None, num_reps=None):
+    """
+    Load varcovs, means and replicate means from a pickled dictionary with
+    keys "pop_ids", "varcovs", "means", "bins" and "replicates". "replicates"
+    should be a list of bootstrap replicate means.
+
+    :param str graph: Pathname of a demes-format YAML file.
+    :param str filename: Pathname of .pkl file.
+    :parma list to_pops: Optional list of populations to subset to (default 
+        None)
+    :param int num_reps: Optional number of bootstrap replicates to load 
+        (if None, returns all replicates). 
+
+    :rtype: dict
+    """
+    with open(filename, "rb") as fin:
+        archive = pickle.load(fin)
+    pop_ids = archive["pop_ids"]
+    bins = archive["bins"]
+    means = archive["means"]
+    varcovs = archive["varcovs"]
+    replicates = archive["replicates"]
+    if num_reps is not None:
+        if num_reps > len(replicates):
+            raise ValueError("`num_reps` exceeds number of replicates")
+    if graph is not None:
+        to_pops = graph_data_overlap(graph, pop_ids)
+    if to_pops is not None:
+        means = bootstrapping.subset_means(means, pop_ids, to_pops)
+        varcovs = bootstrapping.subset_varcovs(varcovs, pop_ids, to_pops)
+        replicates = [bootstrapping.subset_means(rep, pop_ids, to_pops) 
+                      for rep in replicates]
+        pop_ids = to_pops
+    ret = {
+        "bins": bins,
+        "pop_ids": pop_ids,
+        "means": means,
+        "varcovs": varcovs,
+        "replicates": replicates
+    }
+    return ret
 
 
 def compute_bin_stats(
@@ -562,15 +604,15 @@ def _ll(x, mu, inv_varcov):
     return -1.0 / 2.0 * np.matmul(np.matmul(x - mu, inv_varcov), x - mu)
 
 
-def _log_multivariate_normal_pdf(x, mu, varcov):
+def _log_composite_normal_pdf(xs, mus, varcovs):
     """
-    Evaluate the log of the complete multivariate normal probability law.
+    Compute the bin-wise sum of composite multivariate normal PDFs.
     """
-    f = _multivariate_normal_pdf(x, mu, varcov)
-    return np.log(f)
+    fs = [_multi_normal_pdf(x, mu, v) for x, mu, v in zip(xs, mus, varcovs)]
+    return np.sum(np.log(fs))
 
 
-def _multivariate_normal_pdf(x, mu, varcov):
+def _multi_normal_pdf(x, mu, varcov):
     """
     Evaluate the full multivariate normal PDF with means `mu`, variance-
     covariances `varcov` and point `x`.
@@ -582,9 +624,6 @@ def _multivariate_normal_pdf(x, mu, varcov):
         / np.sqrt(np.linalg.det(varcov) * (2.0 * np.pi) ** k) 
     )
     return f
-
-
-## Computing uncertainties; estimating standard errors
 
 
 def compute_uncerts(
@@ -751,14 +790,12 @@ def _compute_godambe_matrix(
     composite) maximum likelihood.
     """
     def obj_func(params, means, varcovs, model_args):
-        
         key = tuple(params)
         if key in _model_cache:
             model = _model_cache[key]
         else:
             model = model_func(params, model_args)
             _model_cache[key] = model
-
         return composite_ll(model, means, varcovs)
 
     H = - _compute_hessian(
@@ -794,7 +831,15 @@ def _compute_godambe_matrix(
     return G, H, J
 
 
-def _compute_hessian(p0, obj_func, model_args, means, varcovs, delta=0.01):
+def _compute_hessian(
+    p0, 
+    obj_func, 
+    model_args, 
+    means, 
+    varcovs, 
+    delta=0.01,
+    verbose=True
+):
     """
     Compute the approximate Hessian matrix of the log-likelihood function. Uses 
     empirical means and varcovs obtained by bootstrapping. 
@@ -827,6 +872,8 @@ def _compute_hessian(p0, obj_func, model_args, means, varcovs, delta=0.01):
                 element = (fpp - fpm - fmp + fmm) / (4 * hs[i] * hs[j])
             H[i, j] = element
             H[j, i] = element
+            if verbose:
+                print(_current_time(), f"Evaluated element ({i}, {j})")
     return H
 
 
