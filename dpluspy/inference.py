@@ -6,7 +6,6 @@ from datetime import datetime
 import demes
 import numpy as np
 import moments
-from moments.Demes import Inference
 import scipy
 import os
 import pickle
@@ -236,7 +235,7 @@ def _object_func(
         else:
             u = params[-1]
 
-    builder = Inference._update_builder(builder, options, params)
+    builder = moments.Demes.Inference._update_builder(builder, options, params)
     graph = demes.Graph.fromdict(builder)
     model = compute_bin_stats(
         graph, 
@@ -269,7 +268,7 @@ def _object_func(
     return -ll
 
 
-def _object_func_log(log_p, *args, **kwargs):
+def _log_object_func(log_p, *args, **kwargs):
     """
     Objective function for optimizing over the log of parameters.
     """
@@ -303,56 +302,62 @@ def optimize(
     approx_method=None
 ):
     """
-    Optimize a demographic model given empirical ``D+`` statistics and a set of
-    model parameters. Wraps functionality from ``moments.Demes.Inference``. 
-    Optionally, the allele frequency spectrum (AFS) or the pairwise diversity
-    statistic ``H`` may be jointly used in the optimization.
+    Fit a demographic model to observed D+ statistics using composite maximum 
+    likelihood. Demographic models are expressed in Demes format and parameters
+    are specified as in moments.Demes: 
+    https://momentsld.github.io/moments/extensions/demes.html#the-options-file
 
-    :param graph_file: Pathname of file holding ``demes``-format model to fit.
-    :param param_file: Pathname of parameter file, specified as described at 
-        https://momentsld.github.io/moments/extensions/demes.html#the-options-file
-    :param means: List of ``D+`` statistics obtained using `bootstrapping`. 
-        ``H`` statistics are the last element of this list.
-    :param varcovs: List of variance-covariance matrices from `bootstrapping`.
-    :param pop_ids: List of population IDs corresponding to `means`.
-    :param bins: Array of recombination bin edges in units of ``r``.
-    :param u: Mutation rate parameter. If fitting the mutation rate, provides 
-        the initial guess for this parameter (here defaults to 1e-8).
-    :param method: Optimization algorithm to use.
-    :param max_iter: Maximum number of optimization iterations.
-    :param log: If True, optimize over the log of parameters (default False)
-    :param verbose: Print convergence messsages every `verbose` function calls.
-    :param overwrite: If True, overwrites existing files with output 
+    Largely replicates or wraps functionality from moments.Demes, but for the
+    D+ statistic specifically. H statistics or the SFS/AFS may optionally also
+    be included in the fit.
+
+    :param str graph_file: Pathname of YAML file holding Demes-format model.
+    :param str param_file: Pathname of YAML parameter file.
+    :param list means: Bin-wise list of mean empirical D+ statistics. The last
+        entry should be an array of H statistics.
+    :param list varcovs: List of covariance matrices obtained via bootstrap.
+    :param list pop_ids: Required list of population IDs.
+    :param arr bins: Array of recombination bin edges in units of r.
+    :param float u: Mutation rate parameter. If fitting the mutation rate, gives 
+        the initial guess for this parameter (defaults to 1e-8).
+    :param str method: Optimization algorithm to use (default "fmin").
+    :param int max_iter: Maximum number of optimization iterations.
+    :param bool log: If True, optimize over the log of params (default False)
+    :param int verbose: Print convergence messsages every `verbose` function 
+        calls.
+    :param bool overwrite: If True, overwrites existing files with output 
         (default False).
-    :param output: Pathname at which to write fitted graph file.
-    :param use_H: If True, include ``H`` in optimization (default False).
-    :param use_afs: If True, include the allele frequency spectrum `afs` in the 
-        fit (default False).
-    :param afs: AFS (SFS) data to use in fitting.
-    :param L: Required when fitting the AFS; gives corresponding sequence 
-        length.
-    :param perturb: Perturb initial parameters by up to `perturb`-fold (default
-        0 does not perturb parameters).
-    :param fit_mutation_rate: If True, fit the mutation rate as an additional
+    :param str output: Pathname to write fitted graph file.
+    :param bool use_H: If True, fit H statistics as well as D+ (default False).
+    :param vool use_afs: If True, fit to the allele frequency spectrum `afs` 
+        (default False). Requires that `afs` and `L` are given.
+    :param moments.Spectrum afs: AFS (SFS) data to use in fitting.
+    :param int L: Effective sequence length, required when fitting the AFS.
+    :param float perturb: Perturb initial parameters by up to `perturb`-fold 
+        (default 0 does not perturb parameters).
+    :param bool fit_mutation_rate: If True, fits the mutation rate as a free
         parameter (default False).
-    :param u_bounds: When fitting the mutation rate, provides upper and lower
-        bounds for that parameter (defaults to (5e-9, 2e-8)).
-    :param fit_ancestral_misid: When fitting jointly with an unfolded AFS and
-        True, fit the probability that the ancestral state is misspecified
+    :param tuple u_bounds: When fitting the mutation rate, provides upper and 
+        lower bounds for that parameter (defaults to (5e-9, 2e-8)).
+    :param bool fit_ancestral_misid: When fitting jointly with an unfolded AFS 
+        and True, fits the probability that the ancestral state is misspecified
         (default False).
-    :param misid_guess: Initial guess for the misid probability (defaults to 
-        0.02).
+    :param float misid_guess: Initial guess for the misid probability (defaults 
+        to 0.02).
     :param str approx_method: Optional method to use for approximating E[D+] 
         within bins (defaults to "simpsons"). The other option is "midpoint",
         which is about two times faster but slightly less precise.
 
-    :returns: List of parameter names, optimized values, and log-likelihood.
+    :returns tuple: List of parameter names, list of fitted parameter values, 
+        and log-likelihood.
     """
-    builder = Inference._get_demes_dict(graph_file)
-    options = Inference._get_params_dict(param_file)
-    params_bounds = Inference._set_up_params_and_bounds(options, builder)
+    builder = moments.Demes.Inference._get_demes_dict(graph_file)
+    options = moments.Demes.Inference._get_params_dict(param_file)
+    params_bounds = moments.Demes.Inference._set_up_params_and_bounds(
+        options, builder)
     param_names, params_0, lower_bounds, upper_bounds = params_bounds
-    constraints = Inference._set_up_constraints(options, param_names)
+    constraints = moments.Demes.Inference._set_up_constraints(
+        options, param_names)
 
     if u is None and not fit_mutation_rate:
         raise ValueError("You must provide `u`")
@@ -389,7 +394,7 @@ def optimize(
         upper_bounds = np.append(upper_bounds, 1)
     
     if perturb > 0: 
-        params_0 = Inference._perturb_params_constrained(
+        params_0 = moments.Demes.Inference._perturb_params_constrained(
             params_0, 
             perturb, 
             lower_bound=lower_bounds, 
@@ -397,7 +402,7 @@ def optimize(
             cons=constraints
         )
     if log:
-        objective = _object_func_log
+        objective = _log_object_func
         params_0 = np.log(params_0) + 1
     else:
         objective = _object_func
@@ -451,7 +456,7 @@ def optimize(
             maxiter=max_iter,
             full_output=True
         )
-        fit_params, fopt, num_iter, func_calls, flag = ret[:5]
+        fit_params, fopt, num_iter, _, flag = ret[:5]
 
     elif method == 'powell':
         ret = scipy.optimize.fmin_powell(
@@ -461,7 +466,7 @@ def optimize(
             maxiter=max_iter,
             full_output=True,
         )
-        fit_params, fopt, _, num_iter, func_calls, flag = ret[:6]
+        fit_params, fopt, _, num_iter, __, flag = ret[:6]
 
     elif method == 'bfgs':
         if log:
@@ -477,7 +482,7 @@ def optimize(
             disp=False,
             full_output=True
         )
-        fit_params, fopt, _, __, func_calls, grad_calls, flag = ret[:7]
+        fit_params, fopt, _, __, ___, grad_calls, flag = ret[:7]
         num_iter = grad_calls
 
     elif method == 'lbfgsb':
@@ -521,7 +526,8 @@ def optimize(
     global _counter
 
     if output is not None:
-        builder = Inference._update_builder(builder, options, fit_params)
+        builder = moments.Demes.Inference._update_builder(
+            builder, options, fit_params)
         graph = demes.Graph.fromdict(builder)
         # Record some information about the fit in the 'metadata' field
         info = {
@@ -573,333 +579,53 @@ def ll_per_bin(xs, mus, varcovs):
     if len(mus) != n_bins or len(varcovs) != n_bins:
         raise ValueError("Data, model and varcovs must have the same length")
     bin_ll = np.zeros(n_bins, dtype=np.float64)
-    for i in range(n_bins):
+    for ii in range(n_bins):
         if (
-            i in _inv_varcov_cache  
-            and np.all(_inv_varcov_cache[i]["varcov"] == varcovs[i])
+            ii in _inv_varcov_cache  
+            and np.all(_inv_varcov_cache[ii]["varcov"] == varcovs[ii])
         ):
-            inv_varcov = _inv_varcov_cache[i]["inv_varcov"]
+            inv_varcov = _inv_varcov_cache[ii]["inv_varcov"]
         else:
-            inv_varcov = np.linalg.inv(varcovs[i])
-            add_to_cache = {"varcov": varcovs[i], "inv_varcov": inv_varcov}
-            _inv_varcov_cache[i] = add_to_cache
-        bin_ll[i] = _ll(xs[i], mus[i], inv_varcov)
+            inv_varcov = np.linalg.inv(varcovs[ii])
+            add_to_cache = {"varcov": varcovs[ii], "inv_varcov": inv_varcov}
+            _inv_varcov_cache[ii] = add_to_cache
+        bin_ll[ii] = _ll(xs[ii], mus[ii], inv_varcov)
     return bin_ll
 
 
 def _ll(x, mu, inv_varcov):
     """
     Compute the log of the multivariate gaussian function with means `mu`, 
-    pre-inverted covariance matrix `inv_cov` at `x`.
+    pre-inverted covariance matrix `inv_cov` at `x`. Drops the coefficient.
 
-    :param x: Array at which to evaluate the function.
-    :type x: np.ndarray, shape (n,)
-    :param mu: Array specifying mean parameters for the distribution.
-    :type mu: np.ndarray, shape (n,)
-    :inv_varcov: Pre-inverted covariance matrix parameterizing the distribution
-    :type inv_varcov: np.ndarray, shape (n, n)
+    :param np.ndarray x: Empirical means
+    :param np.ndarray mu: Model expectations
+    :param np.ndarray inv_varcov: Pre-inverted covariance matrix obtained from
+        a bootstrap over genomic regions
 
-    :returns: Log of the multivariate gaussian law.
+    :returns float: Log of the multivariate gaussian law.
     """
-    return -1.0 / 2.0 * np.matmul(np.matmul(x - mu, inv_varcov), x - mu)
+    return -0.5 * np.matmul(np.matmul((x - mu).T, inv_varcov), x - mu)
 
 
-def _log_composite_normal_pdf(xs, mus, varcovs):
+def exact_ll_per_bin(xs, mus, varcovs):
     """
-    Compute the bin-wise sum of composite multivariate normal PDFs.
-    """
-    fs = [_multi_normal_pdf(x, mu, v) for x, mu, v in zip(xs, mus, varcovs)]
-    return np.sum(np.log(fs))
-
-
-def _multi_normal_pdf(x, mu, varcov):
-    """
-    Evaluate the full multivariate normal PDF with means `mu`, variance-
-    covariances `varcov` and point `x`.
-    """
-    k = len(x)
-    inv_varcov = np.linalg.inv(varcov)
-    f = (
-        np.exp(-1.0 / 2.0 * np.matmul(np.matmul(x - mu, inv_varcov), x - mu)) 
-        / np.sqrt(np.linalg.det(varcov) * (2.0 * np.pi) ** k) 
-    )
-    return f
-
-
-def compute_uncerts(
-    graph_file,
-    param_file,
-    means,
-    varcovs,
-    pop_ids=None,
-    bins=None,
-    u=None,
-    fitted_u=None,
-    bootstrap_reps=None,
-    delta=0.01,
-    method="godambe",
-    approx_method=None
-):
-    """
-    Compute parameter estimates using either the Fisher information matrix 
-    ('fisher' method) or the Godambe information matrix ('godambe'). 
-
-    This function is adopted from the Godambe uncertainty estimators already 
-    implemented in `moments`.
-
-    :param graph_file: Pathname of a `demes`-format .yaml file specifying a
-        fitted demographic model.
-    :param param_file: Pathname of an options file.
-    :param means: List of arrays holding binned mean statistics.
-    :param varcovs: List of variance-covariance matrices.
-    :param pop_ids: List of population IDs.
-    :param bins: Array of recombination distance bin edges.
-    :param u: Fixed mutation rate parameter. Mutually exclusive with `fitted_u`.
-    :param fitted_u: Fitted mutation rate parameter. This value is appended
-        to the fitted parameters and uncerts are computed for it as well.
-    :param bootstrap_reps: List of bootstrap replicate means. Required when
-        `method` is 'godambe' and otherwise not used.
-    :param delta: Step size for evaluating the gradient, etc with finite
-        differences.
-    :param method: Method to use for computing standard deviations. Can be 
-        either 'fisher'- which does not require bootstrap replicates but 
-        understimates variance because genetic linkage violates assumptions-
-        or 'godambe', which requires bootstrap replicates.
-    :param str approx_method: Optional method to use for approximating E[D+] 
-        within bins (defaults to "simpsons"). The other option is "midpoint",
-        which is about two times faster but slightly less precise.
-
-    :returns: A list of parameter names, of input parameter values, and 
-        estimated standard deviations of parameter estimates.
-    """
-    if method not in ("godambe", "fisher"):
-        raise ValueError("invalid method")
-
-    builder = Inference._get_demes_dict(graph_file)
-    options = Inference._get_params_dict(param_file)
-    params_bounds = Inference._set_up_params_and_bounds(options, builder)
-    param_names, params = params_bounds[:2]
-
-    if fitted_u is not None:
-        if u is not None:
-            raise ValueError('You cannot specify both `u` and `fitted_u`')
-        param_names.append('u')
-        params = np.append(params, fitted_u)
-        fitted_mutation_rate = True
-    else:
-        fitted_mutation_rate = False
-
-    deme_names = [d["name"] for d in builder["demes"]]
-    sampled_demes = [] 
-    sample_times = []
-    for pop in pop_ids: 
-        assert pop in deme_names
-        idx = deme_names.index(pop)
-        sample_times.append(builder["demes"][idx]["epochs"][-1]["end_time"])
-        sampled_demes.append(pop)
-
-    model_args = (
-        builder, 
-        options, 
-        sampled_demes, 
-        sample_times, 
-        bins, 
-        u,
-        fitted_mutation_rate,
-        approx_method
-    )
-
-    def model_func(params, args=()):
-        """
-        Compute expected ``D+`` given `params`.
-        """
-        (
-            builder, 
-            options, 
-            sampled_demes, 
-            sample_times, 
-            bins, 
-            u, 
-            fitted_mutation_rate,
-            approx_method
-        ) = args
-        if fitted_mutation_rate:
-            u = params[-1]
-        builder = Inference._update_builder(builder, options, params)
-        graph = demes.Graph.fromdict(builder)
-        model = compute_bin_stats(
-            graph, 
-            sampled_demes,
-            sample_times=sample_times,
-            u=u,
-            bins=bins,
-            phased=False,
-            approx=approx_method
-        )
-        return model
-
-    if method == "fisher":
-        H = _compute_godambe_matrix(
-            params,
-            model_func,
-            model_args,
-            means,
-            varcovs,
-            None,
-            delta=delta,
-            get_hessian=True
-        )
-        uncerts = np.sqrt(np.diag(np.linalg.inv(H)))
-
-    elif method == "godambe":
-        if bootstrap_reps is None:
-            raise ValueError('we need bootstrap_reps to use `godambe` method!')
-        G, _, __ = _compute_godambe_matrix(
-            params,
-            model_func,
-            model_args,
-            means,
-            varcovs,
-            bootstrap_reps,
-            delta=delta,
-            get_hessian=False
-        )
-        uncerts = np.sqrt(np.diag(np.linalg.inv(G)))
-    else:
-        return
-    return param_names, params, uncerts
-
-
-_model_cache = dict()
-
-
-def _compute_godambe_matrix(
-    params_0,
-    model_func,
-    model_args,
-    means,
-    varcovs,
-    bootstrap_reps,
-    delta=0.01,
-    get_hessian=False,
-    verbose=False
-):
-    """
-    Compute the Fisher (FIM) or Godambe (GIM) information matrix. These objects
-    are used to compute the uncertainties of parameters inferred with (here, 
-    composite) maximum likelihood.
-    """
-    def obj_func(params, means, varcovs, model_args):
-        key = tuple(params)
-        if key in _model_cache:
-            model = _model_cache[key]
-        else:
-            model = model_func(params, model_args)
-            _model_cache[key] = model
-        return composite_ll(model, means, varcovs)
-
-    H = - _compute_hessian(
-        params_0, 
-        obj_func, 
-        model_args,
-        means,
-        varcovs,
-        delta=delta
-    )
-    if verbose:
-        print(_current_time(), "computed Hessian")
-    if get_hessian:
-        return H
-
-    J = np.zeros((len(params_0), len(params_0)))
-    for i, bootmeans in enumerate(bootstrap_reps):
-        cU = _compute_gradient(
-            params_0, 
-            obj_func, 
-            model_args,
-            bootmeans,
-            varcovs,
-            delta=delta
-        )
-        if verbose:
-            print(_current_time(), f"computed gradient for bootstrap set {i}")
-        cJ = np.matmul(cU, cU.T)
-        J += cJ
-    J = J / len(bootstrap_reps)
-    J_inv = np.linalg.inv(J)
-    G = np.matmul(np.matmul(H,  J_inv), H)
-    return G, H, J
-
-
-def _compute_hessian(
-    p0, 
-    obj_func, 
-    model_args, 
-    means, 
-    varcovs, 
-    delta=0.01,
-    verbose=True
-):
-    """
-    Compute the approximate Hessian matrix of the log-likelihood function. Uses 
-    empirical means and varcovs obtained by bootstrapping. 
-    """
-    f0 = obj_func(p0, means, varcovs, model_args)
-    hs = delta * p0
-    H = np.zeros((len(p0), len(p0)), dtype=np.float64)
-    for i in range(len(p0)):
-        for j in range(i, len(p0)):
-            p = np.array(p0, copy=True, dtype=np.float64)
-            if i == j:
-                p[i] = p0[i] + hs[i]
-                fp = obj_func(p, means, varcovs, model_args)
-                p[i] = p0[i] - hs[i]
-                fm = obj_func(p, means, varcovs, model_args)
-                element = (fp - 2 * f0 + fm) / hs[i] ** 2
-            else:
-                p[i] = p0[i] + hs[i]
-                p[j] = p0[j] + hs[j]
-                fpp = obj_func(p, means, varcovs, model_args)
-                p[i] = p0[i] + hs[i]
-                p[j] = p0[j] - hs[j]
-                fpm = obj_func(p, means, varcovs, model_args)
-                p[i] = p0[i] - hs[i]
-                p[j] = p0[j] + hs[j]
-                fmp = obj_func(p, means, varcovs, model_args)
-                p[i] = p0[i] - hs[i]
-                p[j] = p0[j] - hs[j]
-                fmm = obj_func(p, means, varcovs, model_args)
-                element = (fpp - fpm - fmp + fmm) / (4 * hs[i] * hs[j])
-            H[i, j] = element
-            H[j, i] = element
-            if verbose:
-                print(_current_time(), f"Evaluated element ({i}, {j})")
-    return H
-
-
-def _compute_gradient(p0, obj_func, model_args, means, varcovs, delta=0.01):
-    """
-    Compute the gradient of the log likelihood function. 
-    """
-    hs = delta * p0
-    gradient = np.zeros((len(p0), 1))
-    for i in range(len(p0)):
-        p = np.array(p0, copy=True, dtype=float)
-        p[i] = p0[i] + hs[i]
-        fp = obj_func(p, means, varcovs, model_args)
-        p[i] = p0[i] - hs[i]
-        fm = obj_func(p, means, varcovs, model_args)
-        gradient[i] = (fp - fm) / (2 * hs[i])
-    return gradient
+    Compute the log-likelihood in each bin without dropping coefficients.
+    """ 
+    n_bins = len(xs)
+    bin_ll = np.zeros(n_bins, np.float64)
+    for ii in range(n_bins):
+        bin_ll[ii] = scipy.stats.multivariate_normal(
+            mean=mus[ii], cov=varcovs[ii]).logpdf(xs[ii])
+    return bin_ll
 
 
 def graph_data_overlap(graph, pop_ids):
     """
-    Find the populations which occur mutually in a Demes graph and a list of 
-    population names.
+    Find the intersection of the sets of populations in `pop_ids` and deme
+    names in `graph`.
 
-    :param graph: Demes graph or the path and file name leading to a .yaml file
-        specifying a demes graph. 
+    :returns list: Names of populations which occur in both inputs.
     """
     if isinstance(graph, str):
         graph = demes.load(graph)
@@ -915,13 +641,13 @@ def _current_time():
     return "[" + datetime.strftime(datetime.now(), "%d-%m-%y %H:%M:%S") + "]"
 
 
-def _load_parameters(graph_file, param_file):
+def _load_params(graph_file, param_file):
     """
     Load a list of parameter names and a vector of their values from a graph 
     file.
     """
-    builder = Inference._get_demes_dict(graph_file)
-    options = Inference._get_params_dict(param_file)
-    pnames, params, *_  = Inference._set_up_params_and_bounds(options, builder)
+    builder = moments.Demes.Inference._get_demes_dict(graph_file)
+    options = moments.Demes.Inference._get_params_dict(param_file)
+    pnames, params, *_  = moments.Demes.Inference._set_up_params_and_bounds(
+        options, builder)
     return pnames, params
-

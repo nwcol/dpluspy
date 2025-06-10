@@ -1,5 +1,5 @@
 """
-Functions for confidence estimation and statistical testing.
+Functions for estimating confidence intervals and statistical testing.
 """
 
 from datetime import datetime
@@ -17,7 +17,15 @@ from .datastructures import DPlusStats
 
 def _model_func(params, args=()):
     """
-    Compute expected D+ given `params`.
+    Compute expected D+ given a vector of `params` and other arguments.
+
+    :param array params: Array of parameter values.
+    :param tuple args: Other arguments required to evaluate model expectations;
+        see unpacking of `args` below. Can be created with `set_up_model_args`.
+        These arguments are static and are not altered as we compute the score,
+        Hessian matrix etc. 
+    
+    :returns list: Bin-wise list of expected D+ statistics.
     """
     (
         builder, 
@@ -53,15 +61,27 @@ def _set_up_model_args(
     bins=None,
     u=None,
     fitted_u=None,
-    method="godambe",
     approx_method=None,
 ):
     """
-    Load parameters from a graph and set up a tuple of arguments for 
-    `_model_func`.
+    Load best-fit parameters from a Demes file and set up a tuple of arguments 
+    for `_model_func`.
+
+    :param str graph_file: Pathname of Demes-specification YAML file encoding
+        max-likelihood best-fit demographic model.
+    :param str param_file: Pathname of YAML file encoding parameter spec.,
+        in the form used by moments.Demes.
+    :param list pop_ids: List of population IDs (required).
+    :param array bins: Array of recombination bin edges (required).
+    :param float u: Fixed mutation rate parameter. Either `u` or `fitted_u` must 
+        be given.
+    :param float fitted_u: Best-fit fitted mutation rate parameter. 
+    :param str approx_method: Method to use when approximating average D+ in 
+        bins ("midpoint" or "simpsons". Defaults to "simpsons").
+        
+    :returns tuple: Array of parameter values, list of parameter names, and 
+        tuple of static arguments.
     """  
-    if method not in ("godambe", "fisher"):
-        raise ValueError("invalid method")
     builder = moments.Demes.Inference._get_demes_dict(graph_file)
     options = moments.Demes.Inference._get_params_dict(param_file)
     params_bounds = moments.Demes.Inference._set_up_params_and_bounds(
@@ -113,39 +133,43 @@ def compute_uncerts(
     method="godambe",
     approx_method=None,
     model_func=_model_func,
-    verbose=False
+    verbose=True
 ):
     """
-    Compute parameter estimates using either the Fisher information matrix 
-    ('fisher' method) or the Godambe information matrix ('godambe'). 
+    Compute parameter estimates using either the Fisher information matrix (FIM,
+    "fisher" method) or the Godambe information matrix (GIM, "godambe" method). 
 
-    This function is adopted from the Godambe uncertainty estimators already 
-    implemented in `moments`.
+    This function is adapted from the Godambe uncertainty estimators already 
+    implemented in `moments` and the methods of Coffman et al. 2015.
 
-    :param graph_file: Pathname of a `demes`-format .yaml file specifying a
+    :param str graph_file: Pathname of a `demes`-format .yaml file specifying a
         fitted demographic model.
-    :param param_file: Pathname of an options file.
-    :param means: List of arrays holding binned mean statistics.
-    :param varcovs: List of variance-covariance matrices.
-    :param pop_ids: List of population IDs.
-    :param bins: Array of recombination distance bin edges.
-    :param u: Fixed mutation rate parameter. Mutually exclusive with `fitted_u`.
-    :param fitted_u: Fitted mutation rate parameter. This value is appended
-        to the fitted parameters and uncerts are computed for it as well.
-    :param bootstrap_reps: List of bootstrap replicate means. Required when
-        `method` is 'godambe' and otherwise not used.
-    :param delta: Step size for evaluating the gradient, etc with finite
-        differences.
-    :param method: Method to use for computing standard deviations. Can be 
-        either 'fisher'- which does not require bootstrap replicates but 
-        understimates variance because genetic linkage violates assumptions-
-        or 'godambe', which requires bootstrap replicates.
+    :param str param_file: Pathname of an options file.
+    :param list means: List of arrays holding binned mean statistics.
+    :param list varcovs: List of variance-covariance matrices.
+    :param list pop_ids: List of population IDs.
+    :param array bins: Array of recombination distance bin edges.
+    :param float u: Fixed mutation rate parameter. Mutually exclusive with 
+        `fitted_u`.
+    :param float fitted_u: Fitted mutation rate parameter. This value is
+        appended to fitted parameters and uncerts are computed for it as well.
+    :param list bootstrap_reps: List of bootstrap replicate means. Required when
+        `method` is "godambe", otherwise not used.
+    :param float delta: Optional step size for evaluating derivatives with 
+        finite differences (default 0.01).
+    :param str method: Method to use for computing standard deviations. Can be 
+        either "fisher"- which does not require bootstrap replicates but 
+        understimates variance because genetic linkage violates its assumptions-
+        or "godambe", which requires `bootstrap_reps`.
     :param str approx_method: Optional method to use for approximating E[D+] 
         within bins (defaults to "simpsons"). The other option is "midpoint",
         which is about two times faster but slightly less precise.
+    :param function model_func: Function to use when evaluating model 
+        expectations (default `_model_func`). 
+    :param verbose: If True (default), prints progress messages.
 
-    :returns: A list of parameter names, of input parameter values, and 
-        estimated standard deviations of parameter estimates.
+    :returns tuple: List of parameter names, list of input parameter values, and 
+        array of estimated standard deviations in best-fit parameters.
     """
     params, param_names, model_args = _set_up_model_args(
         graph_file,
@@ -173,7 +197,7 @@ def compute_uncerts(
     elif method == "godambe":
         if bootstrap_reps is None:
             raise ValueError('Need `bootstrap_reps` to use `godambe` method!')
-        GG, HH, JJ = _get_godambe(
+        GIM, HH, JJ = _get_godambe(
             params,
             model_func,
             model_args,
@@ -184,33 +208,43 @@ def compute_uncerts(
             return_hessian=False,
             verbose=verbose
         )
-        uncerts = np.sqrt(np.diag(np.linalg.inv(GG)))
+        uncerts = np.sqrt(np.diag(np.linalg.inv(GIM)))
     else:
-        return
+        raise ValueError("Invalid `method`")
     return param_names, params, uncerts
 
 
 def lrt_adjustment(
-    p0, 
-    nested_idx, 
-    means, 
-    varcovs, 
-    bootstrap_reps, 
+    p0,
     model_args,
+    means,
+    varcovs,
+    bootstrap_reps,
+    nested_idx, 
     delta=0.01,
     verbose=True
 ):
     """
-    Compute an adjustment for the likelihood-ratio test statistic. 
+    Compute an adjustment for the likelihood-ratio test statistic when 
+    likelihoods are composite, after Coffman et al 2015. 
 
     D_adj = 2 * (ll(full) - ll(nested)) / factor
 
-    :param arr p0: ML parameter values fitted for "simple" (nested) model, 
+    :param array p0: ML parameter values fitted for "simple" (nested) model, 
         extended to include values for "full" model.
-    :param arr nested_idx: Indices of values in `p0` fixed in "simple" model
-    :param model_args: Modul arguments for "complex" model.
+    :param tuple model_args: Modul arguments for "complex" model, constructed
+        using `_set_up_model_args`.
+    :param list means: List of empirical D+ means.
+    :param list varcovs: List of covariance matrices obtained with bootstrap.
+    :param list bootstrap_reps: List of bootstrap replicate means. All 
+        replicates in this list are used to compute the adjustment factor.
+    :param array nested_idx: Indices of values in `p0` fixed in "simple" model.
+    :param float delta: Step size for finite-differences estimation of first
+        and second derivatives.
+    :param bool verbose: If True, print progress messages as the Hessian matrix
+        is estimated.
 
-    :returns float: Adjustment factor. 
+    :returns float: Adjustment factor for the LRT.
     """
     d = len(nested_idx)
 
@@ -252,7 +286,7 @@ def _get_godambe(
     """
     Compute the Godambe information matrix (GIM). 
 
-    :param arr p0: Array of maximum-likelihood parameter values.
+    :param array p0: Array of maximum-likelihood parameter values.
     :param function model_func: Function for computing model expectations.
     :param tuple model_args: Arguments for `model_func`
     :param list means: Empirical means
@@ -304,8 +338,8 @@ def _get_godambe(
         cJ = np.matmul(cU, cU.T)
         JJ += cJ
     JJ = JJ / len(bootstrap_reps)
-    GG = np.matmul(np.matmul(HH, np.linalg.inv(JJ)), HH)
-    return GG, HH, JJ
+    GIM = np.matmul(np.matmul(HH, np.linalg.inv(JJ)), HH)
+    return GIM, HH, JJ
 
 
 def _get_hessian(
@@ -322,7 +356,7 @@ def _get_hessian(
     finite differences. Uses empirical means and variances/coveriances obtained 
     by bootstrapping. 
 
-    :param arr p0: Array of maximum-likelihood parameter values
+    :param array p0: Array of maximum-likelihood parameter values
     :param function obj_func: Function for computing log likelihood
     :param tuple model_args: Arguments for `obj_func`
     :param list means: Empirical means
@@ -331,7 +365,7 @@ def _get_hessian(
     :param bool verbose: If True (default), print updates at the evaluation of 
         each element.
 
-    :returns arr: Hessian matrix
+    :returns array: Estimated Hessian matrix
     """
     hs = delta * p0
     if np.any(hs == 0):
@@ -379,14 +413,14 @@ def _get_score(p0, obj_func, model_args, means, varcovs, delta=0.01):
     """
     Compute the score function using finite differences.
 
-    :param arr p0: Array of maximum-likelihood parameter values
+    :param array p0: Array of maximum-likelihood parameter values
     :param function obj_func: Function for computing log likelihood
     :param tuple model_args: Arguments for `obj_func`
     :param list means: Empirical means
     :param list varcovs: Covariance arrays obtained via bootstrap
     :param float delta: Optional finite differences step size (default 0.01)
 
-    :returns arr: Gradient (score) vector
+    :returns array: Gradient (score) vector
     """
     hs = delta * p0
     if np.any(hs == 0):
