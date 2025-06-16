@@ -90,7 +90,7 @@ def subset_means(means, pop_ids, to_pops):
     for pop in to_pops:
         if pop not in pop_ids:
             raise ValueError(f'"{pop}" not in `pop_ids`')
-    stats = utils._get_Dplus_names(list(range(len(pop_ids))))
+    stats = utils._DP_names(list(range(len(pop_ids))))
     to_pop_idx = [pop_ids.index(pop) for pop in to_pops]
     to_stats = []
     for i, idx0 in enumerate(to_pop_idx):
@@ -112,7 +112,7 @@ def subset_varcovs(varcovs, pop_ids, to_pops):
     for pop in to_pops:
         if pop not in pop_ids:
             raise ValueError(f'"{pop}" not in `pop_ids`')
-    stats = utils._get_Dplus_names(list(range(len(pop_ids))))
+    stats = utils._DP_names(list(range(len(pop_ids))))
     to_pop_idx = [pop_ids.index(pop) for pop in to_pops]
     to_stats = []
     for i, idx0 in enumerate(to_pop_idx):

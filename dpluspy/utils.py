@@ -29,7 +29,7 @@ def _generate_pairs(pop_ids):
     return pairs
 
 
-def _get_H_names(pop_ids):
+def _H_names(pop_ids):
     """
     Generate a list of names of the unique one and two-population H statistics 
     corresponding to a list of population IDs. 
@@ -44,7 +44,7 @@ def _get_H_names(pop_ids):
     return names
 
 
-def _get_Dplus_names(pop_ids):
+def _DP_names(pop_ids):
     """
     Get a list of the unique one and two-population D+ statistics corresponding
     to a list of population IDs.
@@ -59,7 +59,7 @@ def _get_Dplus_names(pop_ids):
     return names
 
 
-def _get_stat_names(pop_ids):
+def _stat_names(pop_ids):
     """
     Get the names of all the D+ and H statistics for populations `pop_ids`.
     Statistic names have the form 'D+_{pop_i}_{pop_j}' and 'H_{pop_i}_{pop_j}'.
@@ -70,9 +70,9 @@ def _get_stat_names(pop_ids):
     :returns: Lists of names for D+ and H statistics.
     :rtype: tuple of lists of strings
     """
-    Dplus_names = _get_Dplus_names(pop_ids)
-    H_names = _get_H_names(pop_ids)
-    return (Dplus_names, H_names)
+    DP_names = _DP_names(pop_ids)
+    H_names = _H_names(pop_ids)
+    return (DP_names, H_names)
 
 
 def _get_latex_names(pop_ids, statistic="D^+"):

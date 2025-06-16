@@ -318,16 +318,13 @@ def plot_parameters(
     figsize = (num_stats * ax_size, num_stats * ax_size)
     fig, axs = plt.subplots(num_stats, num_stats, figsize=figsize, 
         sharey='row', sharex='col', layout='constrained')
-    if lls is not None:
-        norm_lls = mpl.colors.Normalize(vmin=np.min(lls), vmax=np.max(lls))(lls)
-        colors = plt.cm.viridis(norm_lls)
     for i, name_i in enumerate(pnames):
         for j, name_j in enumerate(pnames):
             ax = axs[i, j]
             ax.ticklabel_format(useOffset=False)
             if j == i:
                 ax.annotate(name_i, (0.3, 0.5), xycoords='axes fraction',
-                            fontsize=12)
+                            fontsize=9)
             else:
                 if lls is None:
                     ax.scatter(params[:, j], params[:, i], marker='o', 

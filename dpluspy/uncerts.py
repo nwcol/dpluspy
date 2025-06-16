@@ -178,7 +178,6 @@ def compute_uncerts(
         bins=bins,
         u=u,
         fitted_u=fitted_u,
-        method=method,
         approx_method=approx_method
     )
 
@@ -214,7 +213,7 @@ def compute_uncerts(
     return param_names, params, uncerts
 
 
-def lrt_adjustment(
+def compute_lrt_adjustment(
     p0,
     model_args,
     means,
@@ -226,9 +225,11 @@ def lrt_adjustment(
 ):
     """
     Compute an adjustment for the likelihood-ratio test statistic when 
-    likelihoods are composite, after Coffman et al 2015. 
+    likelihoods are composite, after Coffman et al 2015. There is a typo in 
+    the supplement indicating that D_adj = D / factor; instead we should use
+    D_adj = D * factor.
 
-    D_adj = 2 * (ll(full) - ll(nested)) / factor
+    D_adj = 2 * (ll(full) - ll(nested)) * factor
 
     :param array p0: ML parameter values fitted for "simple" (nested) model, 
         extended to include values for "full" model.
