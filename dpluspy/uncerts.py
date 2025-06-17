@@ -488,7 +488,7 @@ def _get_hessian(
                 # Backward
                 elif (p0[ii] + hs[ii] > bounds[1][ii] 
                     or p0[jj] + hs[jj] > bounds[1][jj]):
-                    fbb = obj_func(p0 + hs * (vi + vj), *args)
+                    fbb = obj_func(p0 + hs * -(vi + vj), *args)
                     fb0 = obj_func(p0 + hs * -vi, *args)
                     f0b = obj_func(p0 + hs * -vj, *args)
                     HH[ii, jj] = (f0 - f0b - fb0 + fbb) / (hs[ii] * hs[jj])
