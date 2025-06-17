@@ -125,7 +125,7 @@ def plot_d_plus_curves(
         else:
             raise ValueError('You must provide `pop_ids`')
     else:
-        statistics = utils._get_Dplus_names(pop_ids)
+        statistics = utils._DP_names(pop_ids)
         if len(models) > 0:
             assert len(statistics) == len(models[0][0])
         if len(means) > 0:
@@ -142,7 +142,7 @@ def plot_d_plus_curves(
     if plot_H:
         num_stats += 1
         if len(Hs_to_plot) == 0:
-            Hs_to_plot = utils._get_H_names(pop_ids)
+            Hs_to_plot = utils._H_names(pop_ids)
         H_labels = []
         for Hstat in Hs_to_plot:
             pop0, pop1 = Hstat.strip('H_').split('_')
