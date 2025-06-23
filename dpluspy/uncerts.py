@@ -133,7 +133,7 @@ def _set_up_bounds(option_file, params, param_names=None):
     """
     options = moments.Demes.Inference._get_params_dict(option_file)
     if param_names is None:
-        param_names = list(options["parameters"].keys())
+        param_names = [defs["name"] for defs in options["parameters"]]
     all_params = [specs["name"] for specs in options["parameters"]]
     lower = np.zeros(len(all_params), np.float64)
     upper = np.zeros(len(all_params), np.float64)
@@ -144,6 +144,7 @@ def _set_up_bounds(option_file, params, param_names=None):
             upper[ii] = defs["upper_bound"]
         else:
             upper[ii] = np.inf
+
     if "constraints" in options:
         for defs in options["constraints"]:
             idx0 = all_params.index(defs["params"][0])
@@ -157,6 +158,7 @@ def _set_up_bounds(option_file, params, param_names=None):
                 lower[idx1] = max(lower[idx1], params[idx0])
             else:
                 raise ValueError("Invalid constraint")
+            
     # Subset to `param_names`
     if len(param_names) != len(all_params):
         idxs = np.array([all_params.index(name) for name in param_names])
@@ -229,7 +231,8 @@ def compute_uncerts(
     )
 
     if bounds is None:
-        bounds = _set_up_bounds(param_file, params, param_names)
+        pass
+        # bounds = _set_up_bounds(param_file, params, param_names)
 
     if method == "fisher":
         HH = _get_godambe(
@@ -451,7 +454,7 @@ def _get_hessian(
                 f"Derivative cannot be evaluated for parameter {ii}")
         
     args = (means, varcovs, model_args)
-    f0 = obj_func(p0, *args)
+    f00 = obj_func(p0, *args)
     HH = np.zeros((len(p0), len(p0)), dtype=np.float64)
     for ii in range(len(p0)):
         for jj in range(ii, len(p0)):
@@ -459,39 +462,60 @@ def _get_hessian(
                 vi = np.zeros(len(p0))
                 vi[ii] = 1
                 # Forward
-                if p0[ii] - hs[ii] < bounds[0][ii]:
+                if p0[ii] - hs[ii] <= bounds[0][ii]:
                     ff = obj_func(p0 + hs * vi, *args)
                     f2f = obj_func(p0 + hs * 2 * vi, *args)
-                    HH[ii, ii] = (f0 - 2 * ff + f2f) / hs[ii] ** 2
+                    HH[ii, ii] = (f00 - 2 * ff + f2f) / hs[ii] ** 2
+
                 # Backward
-                elif p0[ii] + hs[ii] > bounds[1][ii]:
-                    fb = obj_func(p0, + hs * -vi, *args)
+                elif p0[ii] + hs[ii] >= bounds[1][ii]:
+                    fb = obj_func(p0 + hs * -vi, *args)
                     f2b = obj_func(p0 + hs * -2 * vi, *args)
-                    HH[ii, ii] = (f0 - 2 * fb + f2b) / hs[ii] ** 2
+                    HH[ii, ii] = (f00 - 2 * fb + f2b) / hs[ii] ** 2
+
                 # Central
                 else:
                     fb = obj_func(p0 + hs * -vi, *args)
                     ff = obj_func(p0 + hs * vi, *args)
-                    HH[ii, ii] = (ff - 2 * f0 + fb) / hs[ii] ** 2
+                    HH[ii, ii] = (ff - 2 * f00 + fb) / hs[ii] ** 2
+
             else:
                 vi = np.zeros(len(p0))
                 vi[ii] = 1
                 vj = np.zeros(len(p0))
                 vj[jj] = 1
-                # Forward
-                if (p0[ii] - hs[ii] < bounds[0][ii] 
-                    or p0[jj] - hs[jj] < bounds[0][jj]):
+                # Forward/forward
+                if (p0[ii] - hs[ii] <= bounds[0][ii] 
+                        and p0[jj] - hs[jj] <= bounds[0][jj]):
                     fff = obj_func(p0 + hs * (vi + vj), *args)
                     ff0 = obj_func(p0 + hs * vi, *args)
                     f0f = obj_func(p0 + hs * vj, *args)
-                    HH[ii, jj] = (fff - ff0 - f0f + f0) / (hs[ii] * hs[jj])
-                # Backward
-                elif (p0[ii] + hs[ii] > bounds[1][ii] 
-                    or p0[jj] + hs[jj] > bounds[1][jj]):
+                    HH[ii, jj] = (fff - ff0 - f0f + f00) / (hs[ii] * hs[jj])
+
+                # Forward/backward
+                elif (p0[ii] - hs[ii] <= bounds[0][ii] 
+                        and p0[jj] + hs[jj] >= bounds[1][jj]):
+                    ff0 = obj_func(p0 + hs * vi, *args)
+                    ffb = obj_func(p0 + hs * (vi - vj), *args)
+                    f0b = obj_func(p0 + hs * -vj, *args)
+                    HH[ii, jj] = (ff0 - ffb - f00 + f0b) / (hs[ii] * hs[jj])
+
+                # Backward/forward  
+                elif (p0[ii] + hs[ii] >= bounds[1][ii] 
+                        and p0[jj] - hs[jj] <= bounds[0][jj]):
+                    f0f = obj_func(p0 + hs * vj, *args)
+                    fbf = obj_func(p0 + hs * (vj - vi), *args)
+                    fb0 = obj_func(p0 + hs * -vi, *args)
+                    HH[ii, jj] = (f0f - fbf - f00 + fb0) / (hs[ii] * hs[jj])
+
+                # Backward/backward
+                elif (p0[ii] + hs[ii] >= bounds[1][ii] 
+                        and p0[jj] + hs[jj] >= bounds[1][jj]):
                     fbb = obj_func(p0 + hs * -(vi + vj), *args)
                     fb0 = obj_func(p0 + hs * -vi, *args)
                     f0b = obj_func(p0 + hs * -vj, *args)
-                    HH[ii, jj] = (f0 - f0b - fb0 + fbb) / (hs[ii] * hs[jj])
+                    HH[ii, jj] = (f00 - f0b - fb0 + fbb) / (hs[ii] * hs[jj])
+
                 # Central
                 else:
                     fff = obj_func(p0 + hs * (vi + vj), *args)
@@ -499,6 +523,7 @@ def _get_hessian(
                     fbf = obj_func(p0 + hs * (vj - vi), *args)
                     fbb = obj_func(p0 + hs * -(vi + vj), *args)
                     HH[ii, jj] = (fff - ffb - fbf + fbb) / (4 * hs[ii] * hs[jj])
+
                 HH[jj, ii] = HH[ii, jj]
             if verbose:
                 print(inference._current_time(), 
@@ -541,7 +566,8 @@ def _get_score(
     if np.any(hs == 0):
         hs[hs == 0] = delta
     for ii in range(len(p0)):
-        if np.any((p0 - hs < bounds[0]) & (p0 + hs > bounds[1])):
+        if np.any((p0 - hs <= bounds[0]) & (p0 + hs >= bounds[1])):
+            # TODO make error message more helpful
             raise ValueError(
                 f"Derivative cannot be evaluated for parameter {ii}")
         
@@ -551,18 +577,22 @@ def _get_score(
         vec = np.zeros(len(p0))
         vec[ii] = 1
         # One-sided (forward) finite differences
-        if p0[ii] - hs[ii] < bounds[0][ii]:
+        if p0[ii] - hs[ii] <= bounds[0][ii]:
             f0 = obj_func(p0, *args)
             ff = obj_func(p0 + hs * vec, *args)
             score[ii] = (ff - f0) / hs[ii]
+
         # One-sided (backward) finite differences
-        elif p0[ii] + hs[ii] > bounds[1][ii]:
+        elif p0[ii] + hs[ii] >= bounds[1][ii]:
             f0 = obj_func(p0, *args)
             fb = obj_func(p0 + hs * -vec, *args)
             score[ii] = (f0 - fb) / hs[ii]
+
+        # Centrals
         else:
             fb = obj_func(p0 + hs * -vec, *args)
             ff = obj_func(p0 + hs * vec, *args)
             score[ii] = (ff - fb) / (2 * hs[ii])
+
     return score
 

@@ -16,7 +16,7 @@ from . import utils
 
 def parse_statistics(
     vcf_file,
-    bed_file,
+    bed_file=None,
     pop_file=None,
     pop_mapping=None,
     rec_map_file=None,
@@ -1649,6 +1649,7 @@ def _read_genotypes(
                         if missing_to_ref:
                             genotype_list[i][j] = '0'
                         else:
+                            warnings.warn(f"Missing genotype at site {pos1}")
                             skip_line = True
             if skip_line:
                 continue

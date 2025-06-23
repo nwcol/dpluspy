@@ -18,13 +18,13 @@ _out_of_bounds = 1e10
 _counter = 0
 
 
-def load_stats(data_file, graph=None, to_pops=None):
+def load_stats(data_file, graph=None, to_pops=None, return_dict=False):
     """
     Load bootstrapped statistics stored in a .pkl file, subsetting it to the
     set of populations present in both the file and a Demes graph .yaml file.
 
     :param data_file: Pathname of a .pkl file holding statistics- minimally
-        'pop_ids', 'bins', and corresponding 'means' and 'varcovs'.
+        "pop_ids", "bins", and corresponding "means" and "varcovs".
     :param graph_file: Optional pathname of a .yaml Demes file- if given, 
         subsets to the populations common to graph and data (default None).
     :param to_pops: Optional list of populations to subset to.
@@ -42,14 +42,29 @@ def load_stats(data_file, graph=None, to_pops=None):
             data["varcovs"], _pop_ids, to_pops)
         pop_ids = to_pops
     else:
-        pop_ids = data['pop_ids']
-        means = data['means']
-        varcovs = data['varcovs']
+        pop_ids = data["pop_ids"]
+        means = data["means"]
+        varcovs = data["varcovs"]
     bins = data["bins"]
-    return pop_ids, bins, means, varcovs
+    if return_dict:
+        ret = {
+            "bins": bins,
+            "pop_ids": pop_ids,
+            "means": means,
+            "varcovs": varcovs
+        }
+    else:
+        ret = pop_ids, bins, means, varcovs
+    return ret
 
 
-def load_bootstrap_reps(filename, graph=None, to_pops=None, num_reps=None):
+def load_bootstrap_reps(
+    filename, 
+    graph=None, 
+    to_pops=None, 
+    num_reps=None,
+    return_dict=False
+):
     """
     Load varcovs, means and replicate means from a pickled dictionary with
     keys "pop_ids", "varcovs", "means", "bins" and "replicates". "replicates"
@@ -82,13 +97,16 @@ def load_bootstrap_reps(filename, graph=None, to_pops=None, num_reps=None):
         replicates = [bootstrapping.subset_means(rep, pop_ids, to_pops) 
                       for rep in replicates]
         pop_ids = to_pops
-    ret = {
-        "bins": bins,
-        "pop_ids": pop_ids,
-        "means": means,
-        "varcovs": varcovs,
-        "replicates": replicates
-    }
+    if return_dict:
+        ret = {
+            "bins": bins,
+            "pop_ids": pop_ids,
+            "means": means,
+            "varcovs": varcovs,
+            "replicates": replicates
+        }
+    else:
+        ret = (pop_ids, bins, means, varcovs, replicates)
     return ret
 
 
@@ -114,7 +132,7 @@ def compute_bin_stats(
     :param u: Mutation rate parameter (defaults to 1).
     :param bins: Recombination distance bin edges, in units of ``r``.
     :param approx: Method for approximating quantities in each bin; defaults
-        to 'simpsons' if None.
+        to "simpsons" if None.
     :param phased: If True, compute phased expectations for cross-population
         statistics (default False).
 
@@ -127,7 +145,7 @@ def compute_bin_stats(
         raise ValueError("Unrecognized approximation method")
     
     if bins is None:
-        raise ValueError('You must provide bins')
+        raise ValueError("You must provide bins")
 
     if isinstance(graph, str):
         graph = demes.load(graph)
@@ -263,8 +281,8 @@ def _object_func(
         ll += moments.Inference.ll(model_afs, afs)
     
     if verbose > 0 and _counter % verbose == 0:
-        pstr = ''.join([f'{float(p):>10.3}' for p in params])
-        print(f'{_counter:<5}{np.round(ll, 2):>10} [{pstr}]')
+        pstr = "".join([f'{float(p):>10.3}' for p in params])
+        print(f"{_counter:<5}{np.round(ll, 2):>10} [{pstr}]")
     return -ll
 
 
@@ -366,14 +384,14 @@ def optimize(
     
     if use_afs:
         if afs is None:
-            raise ValueError('You must provide `afs` to use `fit_afs`')
+            raise ValueError("You must provide `afs` to use `fit_afs`")
         if L is None:
-            raise ValueError('You must provide `L` to use `fit_afs`')
+            raise ValueError("You must provide `L` to use `fit_afs`")
     
     if fit_mutation_rate:
         if u is None:
             u = 1e-8
-        param_names.append('u')
+        param_names.append("u")
         params_0 = np.append(params_0, u)
         if u_bounds is None:
             u_bounds = (5e-9, 2e-8)
@@ -382,13 +400,13 @@ def optimize(
 
     if fit_ancestral_misid:
         if not use_afs:
-            raise ValueError('You must fit the AFS to `fit_ancestral_misid`')
+            raise ValueError("You must fit the AFS to `fit_ancestral_misid`")
         if afs.folded:
-            raise ValueError('The AFS is folded: cannot `fit_ancestral_misid`')
-        param_names.append('p_misid')
+            raise ValueError("The AFS is folded: cannot `fit_ancestral_misid`")
+        param_names.append("p_misid")
         if misid_guess is None:
             misid_guess = 0.02
-        param_names.append('p_misid')
+        param_names.append("p_misid")
         params_0 = np.append(params_0, misid_guess)
         lower_bounds = np.append(lower_bounds, 0)
         upper_bounds = np.append(upper_bounds, 1)
@@ -401,17 +419,18 @@ def optimize(
             upper_bound=upper_bounds,
             cons=constraints
         )
+    
+    print(_current_time(), f"Fitting D+ to data for {pop_ids}")
+    namestr = "".join([f"{n:>10}" for n in param_names])
+    pstr = "".join([f"{float(p):>10.3}" for p in params_0])
+    print(f"{'Call':<5}{'LL':>10} [{namestr}]")
+    print(f"{'init':<5}{'-':>10} [{pstr}]")
+
     if log:
         objective = _log_object_func
         params_0 = np.log(params_0) + 1
     else:
         objective = _object_func
-    
-    print(_current_time(), f"Fitting D+ to data for {pop_ids}")
-    namestr = ''.join([f'{n:>10}' for n in param_names])
-    pstr = ''.join([f'{float(p):>10.3}' for p in params_0])
-    print(f'{"Call":<5}{"LL":>10} [{namestr}]')
-    print(f'{"init":<5}{"-":>10} [{pstr}]')
 
     deme_names = [d["name"] for d in builder["demes"]]
     sampled_demes = [] 
@@ -444,11 +463,11 @@ def optimize(
         approx_method
     )
     
-    methods = ['fmin', 'powell', 'bfgs', 'lbfgsb']
+    methods = ["fmin", "powell", "bfgs", "lbfgsb"]
     if method not in methods:
         raise ValueError(f"{method} is not a valid method")
     
-    if method == 'fmin':
+    if method == "fmin":
         ret = scipy.optimize.fmin(
             objective,
             params_0,
@@ -456,9 +475,9 @@ def optimize(
             maxiter=max_iter,
             full_output=True
         )
-        fit_params, fopt, num_iter, _, flag = ret[:5]
+        fit_params, fopt, num_iter, func_calls, flag = ret[:5]
 
-    elif method == 'powell':
+    elif method == "powell":
         ret = scipy.optimize.fmin_powell(
             objective,
             params_0,
@@ -466,9 +485,9 @@ def optimize(
             maxiter=max_iter,
             full_output=True,
         )
-        fit_params, fopt, _, num_iter, __, flag = ret[:6]
+        fit_params, fopt, direc, num_iter, func_calls, flag = ret[:6]
 
-    elif method == 'bfgs':
+    elif method == "bfgs":
         if log:
             epsilon = 1e-3
         else:
@@ -485,30 +504,25 @@ def optimize(
         fit_params, fopt, _, __, ___, grad_calls, flag = ret[:7]
         num_iter = grad_calls
 
-    elif method == 'lbfgsb':
+    elif method == "lbfgsb":
         if log:
             bounds = list(
-                zip(np.log(lower_bounds) + 1, np.log(upper_bounds) + 1)
-            )
-            epsilon = 1e-5
-            pgtol = 1e-5
+                zip(np.log(lower_bounds) + 1, np.log(upper_bounds) + 1))
         else:
             bounds = list(zip(lower_bounds, upper_bounds))
-            epsilon = 1e-8
-            pgtol = 1e-5
         ret = scipy.optimize.fmin_l_bfgs_b(
             objective,
             params_0,
             args=args,
             maxiter=max_iter,
             bounds=bounds,
-            epsilon=epsilon,
-            pgtol=pgtol,
+            epsilon=1e-3,
+            pgtol=1e-7,
             approx_grad=True
         )
         fit_params, fopt, output_dict = ret
-        num_iter = output_dict['nit']
-        flag = output_dict['warnflag']
+        num_iter = output_dict["nit"]
+        flag = output_dict["warnflag"]
 
     else:
         return
@@ -529,24 +543,24 @@ def optimize(
         builder = moments.Demes.Inference._update_builder(
             builder, options, fit_params)
         graph = demes.Graph.fromdict(builder)
-        # Record some information about the fit in the 'metadata' field
+        # Record some information about the fit in the "metadata" field
         info = {
-            'll': ll,
-            'num_iter': num_iter,
-            'max_iter': max_iter,
-            'flag': flag
+            "ll": ll,
+            "num_iter": num_iter,
+            "max_iter": max_iter,
+            "flag": flag
         }
         if fit_mutation_rate:
             if fit_ancestral_misid:
                 fitted_u = fit_params[-2]
             else:
                 fitted_u = fit_params[-1]
-            info['fitted_u'] = fitted_u
+            info["fitted_u"] = fitted_u
         else:
-            info['u'] = u
+            info["u"] = u
         if fit_ancestral_misid:
-            info['fitted_misid'] = fit_params[-1]
-        graph.metadata['opt_info'] = info
+            info["fitted_misid"] = fit_params[-1]
+        graph.metadata["opt_info"] = info
 
         if overwrite is False and os.path.isfile(output):
             print(f"{output} already exists: printing model")
