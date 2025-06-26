@@ -187,7 +187,7 @@ def get_bootstrap_reps(regions, num_reps=None, weighted=False):
     labels = list(regions.keys())
     sample_size = len(regions)
     bootstrap_means = []
-    for i in range(num_reps):
+    for _ in range(num_reps):
         samples = random.choices(labels, k=sample_size)
         sampled_regions = [regions[sample] for sample in samples]
         if weighted:

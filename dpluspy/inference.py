@@ -4,6 +4,7 @@ Houses functions for fitting models to empirical statistics.
 
 from datetime import datetime
 import demes
+import gzip
 import numpy as np
 import moments
 import scipy
@@ -31,8 +32,12 @@ def load_stats(data_file, graph=None, to_pops=None, return_dict=False):
 
     :returns: List of population IDs, bins, means, and varcovs.
     """
-    with open(data_file, "rb") as fin:
-        data = pickle.load(fin)
+    if data_file.endswith(".gz"):
+        with gzip.open(data_file, "rb+") as fin:
+            data = pickle.load(fin)
+    else:
+        with open(data_file, "rb") as fin:
+            data = pickle.load(fin)
     _pop_ids = data["pop_ids"]
     if graph is not None:
         to_pops = graph_data_overlap(graph, _pop_ids)
@@ -59,7 +64,7 @@ def load_stats(data_file, graph=None, to_pops=None, return_dict=False):
 
 
 def load_bootstrap_reps(
-    filename, 
+    fname, 
     graph=None, 
     to_pops=None, 
     num_reps=None,
@@ -71,7 +76,7 @@ def load_bootstrap_reps(
     should be a list of bootstrap replicate means.
 
     :param str graph: Pathname of a demes-format YAML file.
-    :param str filename: Pathname of .pkl file.
+    :param str fname: Pathname of .pkl file.
     :parma list to_pops: Optional list of populations to subset to (default 
         None)
     :param int num_reps: Optional number of bootstrap replicates to load 
@@ -79,8 +84,12 @@ def load_bootstrap_reps(
 
     :rtype: dict
     """
-    with open(filename, "rb") as fin:
-        archive = pickle.load(fin)
+    if fname.endswith(".gz"):
+        with gzip.open(fname, "rb+") as fin:
+            archive = pickle.load(fin)
+    else:
+        with open(fname, "rb") as fin:
+            archive = pickle.load(fin)
     pop_ids = archive["pop_ids"]
     bins = archive["bins"]
     means = archive["means"]
@@ -412,12 +421,12 @@ def optimize(
         upper_bounds = np.append(upper_bounds, 1)
     
     if perturb > 0: 
-        params_0 = moments.Demes.Inference._perturb_params_constrained(
+        params_0 = perturb_parameters(
             params_0, 
             perturb, 
-            lower_bound=lower_bounds, 
-            upper_bound=upper_bounds,
-            cons=constraints
+            lower_bounds=lower_bounds, 
+            upper_bounds=upper_bounds,
+            constraints=constraints
         )
     
     print(_current_time(), f"Fitting D+ to data for {pop_ids}")
@@ -508,15 +517,17 @@ def optimize(
         if log:
             bounds = list(
                 zip(np.log(lower_bounds) + 1, np.log(upper_bounds) + 1))
+            epsilon = 1e-3
         else:
             bounds = list(zip(lower_bounds, upper_bounds))
+            epsilon = 1e-2
         ret = scipy.optimize.fmin_l_bfgs_b(
             objective,
             params_0,
             args=args,
             maxiter=max_iter,
             bounds=bounds,
-            epsilon=1e-3,
+            epsilon=epsilon,
             pgtol=1e-7,
             approx_grad=True
         )
@@ -569,6 +580,47 @@ def optimize(
             demes.dump(graph, output)
     _counter = 0
     return param_names, fit_params, ll
+
+
+def perturb_parameters(
+    p0, 
+    fold, 
+    lower_bounds=None, 
+    upper_bounds=None, 
+    constraints=None,
+    reps=100
+):
+    """
+    Randomly perturb initial parameters `p0`. 
+
+    Samples values from uniform distributions with lower bounds `p0 * -fold`
+    and upper bounds `p0 * fold`, taking constraints and bounds into account.
+    """
+    valid = False 
+    tries = 0
+    while not valid: 
+        if tries > reps:
+            raise ValueError(
+                "Failed to set up parameters within bounds/constraints")
+        tries += 1
+        facs = np.random.uniform(p0 * -fold, p0 * fold)
+        p = p0 + facs 
+        if np.any(p <= lower_bounds) or np.any(p >= upper_bounds):
+            for ii in range(len(p)):
+                tries_ii = 0
+                while p[ii] <= lower_bounds[ii] or p[ii] >= upper_bounds[ii]:
+                    if tries_ii == reps:
+                        raise ValueError(
+                            "Failed to set up parameters within bounds")
+                    fac = np.random.uniform(p0[ii] * -fold, p0[ii] * fold)
+                    p[ii] = p0[ii] + fac
+                    tries_ii += 1 
+        if constraints is not None:
+            if np.all(constraints(p) > 0):
+                valid = True
+        else:
+            valid = True
+    return p
 
 
 _inv_varcov_cache = dict()

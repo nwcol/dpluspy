@@ -54,7 +54,7 @@ def _model_func(params, args=()):
     return model
 
 
-def _set_up_model_args(
+def set_up_model_args(
     graph_file,
     param_file,
     pop_ids=None,
@@ -119,7 +119,7 @@ def _set_up_model_args(
     return params, param_names, model_args
 
 
-def _set_up_bounds(option_file, params, param_names=None):
+def set_up_bounds(option_file, params, param_names=None):
     """
     Set up arrays of upper and lower bounds for parameters using the lower/upper 
     limits and constraints specified the `options` object loaded by 
@@ -167,7 +167,52 @@ def _set_up_bounds(option_file, params, param_names=None):
     return lower, upper
 
 
-def compute_uncerts(
+def FIM_uncerts(
+    graph_file,
+    param_file,
+    means,
+    varcovs,
+    pop_ids=None,
+    bins=None,
+    u=None,
+    fitted_u=None,
+    delta=0.01,
+    approx_method=None,
+    model_func=_model_func,
+    verbose=True,
+    bounds=None
+):
+    """
+
+    """
+    params, param_names, model_args = set_up_model_args(
+        graph_file,
+        param_file,
+        pop_ids=pop_ids,
+        bins=bins,
+        u=u,
+        fitted_u=fitted_u,
+        approx_method=approx_method
+    )
+    if bounds is None:
+        pass
+        # bounds = _set_up_bounds(param_file, params, param_names)
+    HH = get_godambe(
+        params,
+        model_func,
+        model_args,
+        means,
+        varcovs,
+        delta=delta,
+        return_hessian=True,
+        bounds=bounds,
+        verbose=verbose
+    )
+    uncerts = np.sqrt(np.diag(np.linalg.inv(HH)))
+    return param_names, params, uncerts
+
+
+def GIM_uncerts(
     graph_file,
     param_file,
     means,
@@ -178,7 +223,6 @@ def compute_uncerts(
     fitted_u=None,
     bootstrap_reps=None,
     delta=0.01,
-    method="godambe",
     approx_method=None,
     model_func=_model_func,
     verbose=True,
@@ -220,7 +264,7 @@ def compute_uncerts(
     :returns tuple: List of parameter names, list of input parameter values, and 
         array of estimated standard deviations in best-fit parameters.
     """
-    params, param_names, model_args = _set_up_model_args(
+    params, param_names, model_args = set_up_model_args(
         graph_file,
         param_file,
         pop_ids=pop_ids,
@@ -229,46 +273,26 @@ def compute_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
-
     if bounds is None:
         pass
         # bounds = _set_up_bounds(param_file, params, param_names)
-
-    if method == "fisher":
-        HH = _get_godambe(
-            params,
-            model_func,
-            model_args,
-            means,
-            varcovs,
-            delta=delta,
-            return_hessian=True,
-            bounds=bounds
-        )
-        uncerts = np.sqrt(np.diag(np.linalg.inv(HH)))
-
-    elif method == "godambe":
-        if bootstrap_reps is None:
-            raise ValueError('Need `bootstrap_reps` to use `godambe` method!')
-        GIM, HH, JJ = _get_godambe(
-            params,
-            model_func,
-            model_args,
-            means,
-            varcovs,
-            bootstrap_reps=bootstrap_reps,
-            delta=delta,
-            return_hessian=False,
-            verbose=verbose,
-            bounds=bounds
-        )
-        uncerts = np.sqrt(np.diag(np.linalg.inv(GIM)))
-    else:
-        raise ValueError("Invalid `method`")
+    GIM, HH, JJ = get_godambe(
+        params,
+        model_func,
+        model_args,
+        means,
+        varcovs,
+        bootstrap_reps=bootstrap_reps,
+        delta=delta,
+        return_hessian=False,
+        verbose=verbose,
+        bounds=bounds
+    )
+    uncerts = np.sqrt(np.diag(np.linalg.inv(GIM)))
     return param_names, params, uncerts
 
 
-def compute_lrt_adjustment(
+def LRT_adjust(
     p0,
     model_args,
     means,
@@ -276,16 +300,16 @@ def compute_lrt_adjustment(
     bootstrap_reps,
     nested_idx, 
     delta=0.01,
+    steps=None,
     verbose=True,
-    bounds=None
+    bounds=None,
+    model_func=_model_func
 ):
     """
     Compute an adjustment for the likelihood-ratio test statistic when 
     likelihoods are composite, after Coffman et al 2015. There is a typo in 
     the supplement indicating that D_adj = D / factor; instead we should use
-    D_adj = D * factor.
-
-    D_adj = 2 * (ll(full) - ll(nested)) * factor
+    D_adj = adj * D, which is D_adj = adj * 2 * (ll(full) - ll(nested))
 
     :param array p0: ML parameter values fitted for "simple" (nested) model, 
         extended to include values for "full" model.
@@ -303,15 +327,15 @@ def compute_lrt_adjustment(
 
     :returns float: Adjustment factor for the LRT.
     """
-    d = len(nested_idx)
+    nested_idx = np.asarray(nested_idx)
 
     def _diff_func(dparams, args=None):
         params = np.array(p0, copy=True)
         params[nested_idx] = dparams
-        return _model_func(params, args=model_args)
+        return model_func(params, args=model_args)
     
     p_nested = p0[nested_idx]
-    GIM, HH, JJ = _get_godambe( 
+    GIM, HH, JJ = get_godambe( 
         p_nested,
         _diff_func,
         model_args,
@@ -319,18 +343,19 @@ def compute_lrt_adjustment(
         varcovs,
         bootstrap_reps=bootstrap_reps,
         delta=delta,
+        steps=steps,
         verbose=verbose,
         bounds=bounds
     )
 
-    factor = np.trace(np.matmul(JJ, np.linalg.inv(HH))) / d
+    factor = len(nested_idx) / np.trace(np.matmul(JJ, np.linalg.inv(HH))) 
     return factor
 
 
 _model_cache = dict()
 
 
-def _get_godambe(
+def get_godambe(
     p0,
     model_func,
     model_args,
@@ -338,6 +363,7 @@ def _get_godambe(
     varcovs,
     bootstrap_reps=None,
     delta=0.01,
+    steps=None,
     return_hessian=False,
     verbose=True,
     bounds=None
@@ -377,29 +403,30 @@ def _get_godambe(
             _model_cache[key] = model
         return inference.composite_ll(model, means, varcovs)
 
-    HH = -_get_hessian(
+    HH = -get_hess(
         p0, 
         obj_func, 
         model_args,
         means,
         varcovs,
         delta=delta,
+        steps=steps,
         verbose=verbose,
         bounds=bounds
     )
     if return_hessian:
         return HH
 
-    # Esimate the "variability matrix" J by averaging U * U^T across boot. reps
     JJ = np.zeros((len(p0), len(p0)))
     for i, rep_means in enumerate(bootstrap_reps):
-        cU = _get_score(
+        cU = get_grad(
             p0, 
             obj_func, 
             model_args,
             rep_means,
             varcovs,
             delta=delta,
+            steps=steps,
             bounds=bounds
         )
         cJ = np.matmul(cU, cU.T)
@@ -409,13 +436,14 @@ def _get_godambe(
     return GIM, HH, JJ
 
 
-def _get_hessian(
+def get_hess(
     p0, 
-    obj_func, 
+    func, 
     model_args, 
     means, 
     varcovs, 
     delta=0.01,
+    steps=None,
     verbose=True,
     bounds=None
 ):
@@ -425,8 +453,8 @@ def _get_hessian(
     by bootstrapping. 
 
     :param array p0: Array of maximum-likelihood parameter values
-    :param function obj_func: Function for computing log likelihood
-    :param tuple model_args: Arguments for `obj_func`
+    :param function func: Function for computing log likelihood
+    :param tuple model_args: Arguments for `func`
     :param list means: Empirical means
     :param list varcovs: Covariance arrays obtained via bootstrap
     :param float delta: Optional finite differences step size (default 0.01)
@@ -436,8 +464,8 @@ def _get_hessian(
         each should have the same length as `p0`. We use one-sided finite 
         differences to evaluate the derivative for parameters closer to a bound
         than `delta` times their value. It is assumed that bounds are inclusive;
-        that `obj_func` can be evaluated at the value of the bound, unless it
-        is an infinite upper bound.
+        that `func` can be evaluated at the value of the bound, unless it is an 
+        infinite upper bound.
 
     :returns array: Estimated Hessian matrix
     """
@@ -445,107 +473,170 @@ def _get_hessian(
         bounds = (np.zeros(len(p0)), np.full(len(p0), np.inf))
     if np.any(p0 < bounds[0]) or np.any(p0 > bounds[1]):
         raise ValueError("All parameters must be within bounds")
-    hs = delta * p0
-    if np.any(hs == 0):
-        hs[hs == 0] = delta
+    
+    if steps is not None:
+        steps = np.asarray(steps)
+        if len(steps) != len(p0):
+            raise ValueError("Lengths of `steps`, `p0` must be equal")
+    else:
+        steps = delta * p0
+        if np.any(steps == 0):
+            steps[steps == 0] = delta
+
     for ii in range(len(p0)):
-        if np.any((p0 - hs < bounds[0]) & (p0 + hs > bounds[1])):
+        if np.any((p0 - steps < bounds[0]) & (p0 + steps > bounds[1])):
             raise ValueError(
                 f"Derivative cannot be evaluated for parameter {ii}")
         
     args = (means, varcovs, model_args)
-    f00 = obj_func(p0, *args)
+    
     HH = np.zeros((len(p0), len(p0)), dtype=np.float64)
     for ii in range(len(p0)):
         for jj in range(ii, len(p0)):
-            if ii == jj:
-                vi = np.zeros(len(p0))
-                vi[ii] = 1
-                # Forward
-                if p0[ii] - hs[ii] <= bounds[0][ii]:
-                    ff = obj_func(p0 + hs * vi, *args)
-                    f2f = obj_func(p0 + hs * 2 * vi, *args)
-                    HH[ii, ii] = (f00 - 2 * ff + f2f) / hs[ii] ** 2
-
-                # Backward
-                elif p0[ii] + hs[ii] >= bounds[1][ii]:
-                    fb = obj_func(p0 + hs * -vi, *args)
-                    f2b = obj_func(p0 + hs * -2 * vi, *args)
-                    HH[ii, ii] = (f00 - 2 * fb + f2b) / hs[ii] ** 2
-
-                # Central
-                else:
-                    fb = obj_func(p0 + hs * -vi, *args)
-                    ff = obj_func(p0 + hs * vi, *args)
-                    HH[ii, ii] = (ff - 2 * f00 + fb) / hs[ii] ** 2
-
-            else:
-                vi = np.zeros(len(p0))
-                vi[ii] = 1
-                vj = np.zeros(len(p0))
-                vj[jj] = 1
-                # Forward/forward
-                if (p0[ii] - hs[ii] <= bounds[0][ii] 
-                        and p0[jj] - hs[jj] <= bounds[0][jj]):
-                    fff = obj_func(p0 + hs * (vi + vj), *args)
-                    ff0 = obj_func(p0 + hs * vi, *args)
-                    f0f = obj_func(p0 + hs * vj, *args)
-                    HH[ii, jj] = (fff - ff0 - f0f + f00) / (hs[ii] * hs[jj])
-
-                # Forward/backward
-                elif (p0[ii] - hs[ii] <= bounds[0][ii] 
-                        and p0[jj] + hs[jj] >= bounds[1][jj]):
-                    ff0 = obj_func(p0 + hs * vi, *args)
-                    ffb = obj_func(p0 + hs * (vi - vj), *args)
-                    f0b = obj_func(p0 + hs * -vj, *args)
-                    HH[ii, jj] = (ff0 - ffb - f00 + f0b) / (hs[ii] * hs[jj])
-
-                # Backward/forward  
-                elif (p0[ii] + hs[ii] >= bounds[1][ii] 
-                        and p0[jj] - hs[jj] <= bounds[0][jj]):
-                    f0f = obj_func(p0 + hs * vj, *args)
-                    fbf = obj_func(p0 + hs * (vj - vi), *args)
-                    fb0 = obj_func(p0 + hs * -vi, *args)
-                    HH[ii, jj] = (f0f - fbf - f00 + fb0) / (hs[ii] * hs[jj])
-
-                # Backward/backward
-                elif (p0[ii] + hs[ii] >= bounds[1][ii] 
-                        and p0[jj] + hs[jj] >= bounds[1][jj]):
-                    fbb = obj_func(p0 + hs * -(vi + vj), *args)
-                    fb0 = obj_func(p0 + hs * -vi, *args)
-                    f0b = obj_func(p0 + hs * -vj, *args)
-                    HH[ii, jj] = (f00 - f0b - fb0 + fbb) / (hs[ii] * hs[jj])
-
-                # Central
-                else:
-                    fff = obj_func(p0 + hs * (vi + vj), *args)
-                    ffb = obj_func(p0 + hs * (vi - vj), *args)
-                    fbf = obj_func(p0 + hs * (vj - vi), *args)
-                    fbb = obj_func(p0 + hs * -(vi + vj), *args)
-                    HH[ii, jj] = (fff - ffb - fbf + fbb) / (4 * hs[ii] * hs[jj])
-
-                HH[jj, ii] = HH[ii, jj]
+            elem = hessian_elem(func, p0, steps, bounds, ii, jj, args=args)
+            HH[ii, jj] = HH[jj, ii] = elem
             if verbose:
                 print(inference._current_time(), 
                     f"Evaluated Hessian element ({ii}, {jj})")
     return HH
 
 
-def _get_score(
+def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
+    """
+    Evaluate element (ii, jj) of the Hessian matrix, the matrix of second
+    partial derivatives over the log-likelihood function with respect to 
+    parameters ii and jj.
+
+    :param function func: Objective function, taking a vector of parameters
+        and `args` as arguments and returning a log-likelihood.
+    :param float p0: ML parameter values.
+    :param np.ndarray steps: Array of steps to use for each parameter in 
+        finite difference evaluation.
+    :param tuple bounds: Tuple of arrays of lower and upper parameter bounds.
+    :params int ii, jj: Indices of the Hessian element to evaluate.
+    :param tuple args: Auxiliary arguments for `func`.
+
+    :returns float: Hessian element (ii, jj)
+    """
+    indicator = lambda n, i: np.array([0 if j != i else 1 for j in range(n)])
+    lower, upper = bounds
+    f_0 = func(p0, *args)
+
+    if ii == jj:
+        Ii = indicator(len(p0), ii)
+        # Forward
+        if p0[ii] - steps[ii] <= lower[ii]:
+            f_f = func(p0 + steps * Ii, *args)
+            f_2f = func(p0 + steps * 2 * Ii, *args)
+            elem = (f_0 - 2 * f_f + f_2f) / steps[ii] ** 2
+        # Backward
+        elif p0[ii] + steps[ii] >= upper[ii]:
+            f_b = func(p0 - steps * Ii, *args)
+            f_2b = func(p0 - steps * 2 * Ii, *args)
+            elem = (f_0 - 2 * f_b + f_2b) / steps[ii] ** 2
+        # Central
+        else:
+            f_b = func(p0 - steps * Ii, *args)
+            f_f = func(p0 + steps * Ii, *args)
+            elem = (f_f - 2 * f_0 + f_b) / steps[ii] ** 2
+
+    else:
+        Ii = indicator(len(p0), ii)
+        Ij = indicator(len(p0), jj)
+
+        if p0[ii] + steps[ii] >= upper[ii]:
+            # Backward/backward
+            if p0[jj] + steps[jj] >= upper[jj]: 
+                print("back/back")
+                f_bb = func(p0 - steps * (Ii + Ij), *args)
+                f_0b = func(p0 - steps * Ij, *args)
+                f_b0 = func(p0 - steps * Ii, *args)
+                elem = (f_bb - f_0b - f_b0 + f_0) / (steps[ii] * steps[jj])
+            # Backward/forward
+            elif p0[jj] - steps[jj] <= lower[jj]:
+                print("back/for")
+                f_0f = func(p0 + steps * Ij, *args)
+                f_bf = func(p0 + steps * (Ij - Ii), *args)
+                f_b0 = func(p0 - steps * Ii, *args)
+                elem = (f_0f - f_0 - f_bf + f_b0) / (steps[ii] * steps[jj])
+            # Backward/central
+            else:
+                print("back/cen")
+                f_0f = func(p0 + steps * Ij, *args)
+                f_bf = func(p0 + steps * (Ij - Ii), *args)
+                f_0b = func(p0 - steps * Ij, *args)
+                f_bb = func(p0 - steps * (Ii + Ij), *args)
+                elem = (f_0f - f_bf - f_0b + f_bb) / (2 * steps[ii] * steps[jj])
+
+        elif p0[ii] - steps[ii] <= lower[ii]:
+            # Forward/backward
+            if p0[jj] + steps[jj] >= upper[jj]: 
+                print("for/back")
+                f_f0 = func(p0 + steps * Ii, *args)
+                f_fb = func(p0 + steps * (Ii - Ij), *args)
+                f_0b = func(p0 - steps * Ij, *args)
+                elem = (f_f0 - f_fb - f_0 + f_0b) / (steps[ii] * steps[jj])
+            # Forward/forward
+            elif p0[jj] - steps[jj] <= lower[jj]:
+                print("for/for")
+                f_ff = func(p0 + steps * (Ii + Ij), *args)
+                f_f0 = func(p0 + steps * Ii, *args)
+                f_0f = func(p0 + steps * Ij, *args)
+                elem = (f_ff - f_f0 - f_0f + f_0) / (steps[ii] * steps[jj])
+            # Forward/central
+            else:
+                print("for/cen")
+                f_ff = func(p0 + steps * (Ii + Ij), *args)
+                f_fb = func(p0 + steps * (Ii - Ij), *args)
+                f_0f = func(p0 + steps * Ij, *args)
+                f_0b = func(p0 - steps * Ij, *args)
+                elem = (f_ff - f_fb - f_0f + f_0b) / (2 * steps[ii] * steps[jj])
+
+        else:
+            # Central/backward
+            if p0[jj] + steps[jj] >= upper[jj]: 
+                print("cen/back")
+                f_f0 = func(p0 + steps * Ii, *args)
+                f_fb = func(p0 + steps * (Ii - Ij), *args)
+                f_b0 = func(p0 - steps * Ii, *args)
+                f_bb = func(p0 - steps * (Ii + Ij), *args)
+                elem = (f_f0 - f_fb - f_b0 + f_bb) / (2 * steps[ii] * steps[jj])
+            # Central/forward
+            elif p0[jj] - steps[jj] <= lower[jj]:
+                print("cen/for")
+                f_ff = func(p0 + steps * (Ii + Ij), *args)
+                f_f0 = func(p0 + steps * Ii, *args)
+                f_bf = func(p0 + steps * (Ij - Ii), *args)
+                f_b0 = func(p0 - steps * Ii, *args)
+                elem = (f_ff - f_f0 - f_bf + f_b0) / (2 * steps[ii] * steps[jj])
+            # Central/central
+            else:
+                print("cen/cen")
+                f_ff = func(p0 + steps * (Ii + Ij), *args)
+                f_fb = func(p0 + steps * (Ii - Ij), *args)
+                f_bf = func(p0 + steps * (Ij - Ii), *args)
+                f_bb = func(p0 - steps * (Ii + Ij), *args)
+                elem = (f_ff - f_fb - f_bf + f_bb) / (4 * steps[ii] * steps[jj])
+
+    return elem
+
+
+def get_grad(
     p0, 
-    obj_func, 
+    func, 
     model_args, 
     means, 
     varcovs, 
     delta=0.01, 
+    steps=None,
     bounds=None
 ):
     """
     Compute the score function using finite differences.
 
     :param array p0: Array of maximum-likelihood parameter values
-    :param function obj_func: Function for computing log likelihood
-    :param tuple model_args: Arguments for `obj_func`
+    :param function func: Function for computing log likelihood
+    :param tuple model_args: Arguments for `func`
     :param list means: Empirical means
     :param list varcovs: Covariance arrays obtained via bootstrap
     :param float delta: Optional finite differences step size (default 0.01)
@@ -553,7 +644,7 @@ def _get_score(
         each should have the same length as `p0`. We use one-sided finite 
         differences to evaluate the derivative for parameters closer to a bound
         than `delta` times their value. It is assumed that bounds are inclusive;
-        that `obj_func` can be evaluated at the value of the bound, unless it
+        that `func` can be evaluated at the value of the bound, unless it
         is an infinite upper bound.
 
     :returns array: Gradient (score) vector
@@ -562,37 +653,44 @@ def _get_score(
         bounds = (np.zeros(len(p0)), np.full(len(p0), np.inf))
     if np.any(p0 < bounds[0]) or np.any(p0 > bounds[1]):
         raise ValueError("All parameters must be within bounds")
-    hs = delta * p0
-    if np.any(hs == 0):
-        hs[hs == 0] = delta
+
+    if steps is not None:
+        steps = np.asarray(steps)
+        if len(steps) != len(p0):
+            raise ValueError("Lengths of `steps`, `p0` must be equal")
+    else:
+        steps = delta * p0
+        if np.any(steps == 0):
+            steps[steps == 0] = delta
+
     for ii in range(len(p0)):
-        if np.any((p0 - hs <= bounds[0]) & (p0 + hs >= bounds[1])):
+        if np.any((p0 - steps <= bounds[0]) & (p0 + steps >= bounds[1])):
             # TODO make error message more helpful
             raise ValueError(
                 f"Derivative cannot be evaluated for parameter {ii}")
         
+    indicator = lambda n, i: np.array([0 if j != i else 1 for j in range(n)])
     args = (means, varcovs, model_args)
     score = np.zeros((len(p0), 1))
     for ii in range(len(p0)):
-        vec = np.zeros(len(p0))
-        vec[ii] = 1
+        vec = indicator(len(p0), ii)
         # One-sided (forward) finite differences
-        if p0[ii] - hs[ii] <= bounds[0][ii]:
-            f0 = obj_func(p0, *args)
-            ff = obj_func(p0 + hs * vec, *args)
-            score[ii] = (ff - f0) / hs[ii]
+        if p0[ii] - steps[ii] <= bounds[0][ii]:
+            f_0 = func(p0, *args)
+            f_f = func(p0 + steps * vec, *args)
+            score[ii] = (f_f - f_0) / steps[ii]
 
         # One-sided (backward) finite differences
-        elif p0[ii] + hs[ii] >= bounds[1][ii]:
-            f0 = obj_func(p0, *args)
-            fb = obj_func(p0 + hs * -vec, *args)
-            score[ii] = (f0 - fb) / hs[ii]
+        elif p0[ii] + steps[ii] >= bounds[1][ii]:
+            f_0 = func(p0, *args)
+            f_b = func(p0 + steps * -vec, *args)
+            score[ii] = (f_0 - f_b) / steps[ii]
 
-        # Centrals
+        # Central
         else:
-            fb = obj_func(p0 + hs * -vec, *args)
-            ff = obj_func(p0 + hs * vec, *args)
-            score[ii] = (ff - fb) / (2 * hs[ii])
+            f_b = func(p0 + steps * -vec, *args)
+            f_f = func(p0 + steps * vec, *args)
+            score[ii] = (f_f - f_b) / (2 * steps[ii])
 
     return score
 

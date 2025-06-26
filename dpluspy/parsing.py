@@ -3,7 +3,7 @@ Houses functions for estimating ``D+`` from sequence data.
 """
 
 from collections import defaultdict
-import copy
+import io
 import gzip
 import numpy as np
 import pandas
@@ -453,7 +453,7 @@ def compute_statistics(
         pop_ids = None
 
     if within:
-        sites, genotype_matrix, sample_ids = _read_genotypes(
+        sites, genotype_matrix, sample_ids = read_vcf(
             vcf_file, bed_file=bed_file, interval=interval
         )
         if len(sites) == 0:
@@ -468,11 +468,137 @@ def compute_statistics(
             pop_genotypes, site_map, bins, cross_pop=cross_pop, phased=phased,
         )
     else:
-        sites_left, genotype_matrix_left, sample_ids = _read_genotypes(
+        sites_left, genotype_matrix_left, sample_ids = read_vcf(
             vcf_file, bed_file=bed_file, interval=left_interval
         )
-        sites_right, genotype_matrix_right, _ = _read_genotypes(
+        sites_right, genotype_matrix_right, _ = read_vcf(
             vcf_file, bed_file=bed_file, interval=right_interval
+        )
+        if len(sites_left) == 0 or len(sites_right) == 0:
+            warnings.warn('Loaded empty genotype array(s)')
+            zeros = _empty_sums(bins, pop_ids, cross_pop=cross_pop)
+            return zeros, pop_ids
+        pop_genotypes_left = _build_pop_genotypes(
+            genotype_matrix_left, sample_ids, pop_mapping=pop_mapping
+        )
+        pop_genotypes_right = _build_pop_genotypes(
+            genotype_matrix_right, sample_ids, pop_mapping=pop_mapping
+        )
+        site_map_left = rec_map(sites_left)
+        site_map_right = rec_map(sites_right)
+        sums = _compute_stats_between(
+            pop_genotypes_left, 
+            pop_genotypes_right, 
+            site_map_left, 
+            site_map_right,
+            bins, cross_pop=True, phased=False
+        )
+        pop_ids = list(pop_genotypes_left.keys())
+
+    return sums, pop_ids
+
+
+def compute_ts_stats(
+    ts,
+    individual_names=None,
+    bed_file=None,
+    pop_file=None,
+    pop_mapping=None,
+    rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
+    interp_method='linear',
+    r=None,
+    interval=None,
+    interval_between=None,
+    r_bins=None,
+    phased=False,
+    cross_pop=True
+):
+    """
+    Compute statistics from a tskit tree sequence.
+    """
+    if interval is not None or interval_between is not None:
+        if interval is not None:
+            within = True
+            assert len(interval) == 2
+            interval = (int(interval[0]), int(interval[1]))
+            tot_interval = interval
+        else:
+            within = False
+            assert len(interval_between) == 2
+            left_interval = interval_between[0]
+            right_interval = interval_between[1]
+            assert len(left_interval) == len(right_interval) == 2
+            assert right_interval[0] >= left_interval[1]
+            interval_between = (
+                (int(left_interval[0]), int(left_interval[1])),
+                (int(right_interval[0]), int(right_interval[1])))
+            tot_interval = (interval_between[0][0], interval_between[1][1])
+        if tot_interval[0] < 1:
+            raise ValueError('Interval start must be >= 1')
+    else:
+        sites = list(ts.sites())
+        tot_interval = (int(sites[0].position), int(sites[-1].position) + 1)
+        within = True
+        print(utils._current_time(), 'No interval given: Parsing all sites')
+
+    if pop_file is not None and pop_mapping is not None:
+        raise ValueError('You cannot use both `pop_file` and `pop_mapping`')
+    if pop_file is not None:
+        pop_mapping = _load_pop_file(pop_file)
+
+    if r is not None:
+        rec_map = _get_uniform_recombination_map(r, tot_interval[-1])
+    else:
+        rec_map = _load_recombination_map(
+            rec_map_file, 
+            pos_col=pos_col,
+            map_col=map_col,
+            interp_method=interp_method
+        )
+
+    if r_bins is None:
+        raise ValueError('You must provide `r_bins`')
+    if isinstance(r_bins, str):
+        r_bins = np.loadtxt(r_bins)
+    bins = utils._map_function(r_bins)
+
+    if pop_mapping is not None:
+        pop_ids = list(pop_mapping.keys())
+    else:
+        pop_ids = None
+
+    if within:
+        sites, genotype_matrix, sample_ids = genotypes_from_ts(
+            ts, 
+            bed_file=bed_file, 
+            interval=interval, 
+            individual_names=individual_names
+        )
+        if len(sites) == 0:
+            warnings.warn('Loaded empty genotype array')
+            zeros = _empty_sums(bins, pop_ids, cross_pop=cross_pop)
+            return zeros, pop_ids
+        pop_genotypes = _build_pop_genotypes(
+            genotype_matrix, sample_ids, pop_mapping=pop_mapping
+        )
+        site_map = rec_map(sites)
+        sums = _compute_stats_within(
+            pop_genotypes, site_map, bins, cross_pop=cross_pop, phased=phased,
+        )
+    else:
+        sites_left, genotype_matrix_left, sample_ids = genotypes_from_ts(
+            ts, 
+            bed_file=bed_file, 
+            interval=left_interval, 
+            individual_names=individual_names
+        )
+        sites_right, genotype_matrix_right, _ = genotypes_from_ts(
+            ts, 
+            bed_file=bed_file, 
+            interval=right_interval, 
+            individual_names=individual_names
         )
         if len(sites_left) == 0 or len(sites_right) == 0:
             warnings.warn('Loaded empty genotype array(s)')
@@ -768,10 +894,10 @@ def _build_pop_genotypes(genotypes, sample_ids, pop_mapping=None):
     """
     From an array of genotypes encoding 
     
-    :param genotypes: Array of allelic states loaded by `_read_genotypes`. 
+    :param genotypes: Array of allelic states loaded by `read_vcf`. 
         This should have the shape ``(s, n, 2)``, where ``s`` is the number of
         sites and ``n`` is the number of diploid samples.
-    :param sample_ids: VCF sample IDs loaded by `_read_genotypes`.
+    :param sample_ids: VCF sample IDs loaded by `read_vcf`.
     :param pop_mapping: Dictionary, mapping population IDs to lists of sample
         IDs (default None). If None, each sample is placed in a unique
         population.
@@ -1539,10 +1665,10 @@ def _load_mutation_map(filename, positions, map_col="mut_map"):
     return mut_map
 
 
-def _read_genotypes(
+def read_vcf(
     vcf_file, 
     bed_file=None, 
-    multiallelic=False,
+    multiallelic=True,
     missing_to_ref=False,
     filtered=False,
     interval=None,
@@ -1567,7 +1693,7 @@ def _read_genotypes(
     :param vcf_file: Pathname of a VCF file
     :param bed_file: Filename for BED mask to impose on sites (default None).
     :param multiallelic: If True, do not skip multiallelic sites 
-        (default False).
+        (default True).
     :param missing_to_ref: If True, genotypes ./. and .|. will be read as 0/0
         or 0|0 respectively (default False skips sites with any missing data).
     :param interval: 2-tuple or list specifying 1-indexed upper and lower 
@@ -1601,6 +1727,101 @@ def _read_genotypes(
     with open_func(vcf_file, 'rb') as fin:
         for lineb in fin:
             line = lineb.decode()
+            if line.startswith('#'):
+                if line.startswith('#CHROM'):
+                    sample_ids = line.split()[9:]
+                continue
+            split_line = line.split()
+            pos1 = int(split_line[1])
+            if verbose > 1:
+                if counter % verbose == 0 and counter > 1:
+                    print(utils._current_time(),
+                        f'parsed position {pos1} line {counter}')
+            counter += 1
+            if intervaled:
+                if pos1 < interval[0]:
+                    continue
+                if pos1 >= interval[1]:
+                    break
+            if masked:
+                pos0 = pos1 - 1
+                if pos0 >= len(mask):
+                    break
+                if mask[pos0] == True:
+                    continue
+
+            if filtered:
+                filtr = split_line[6]
+                if filtr not in ('PASS', '.'):
+                    continue
+            
+            ref = split_line[3]
+            alts = split_line[4].split(',')
+            alleles = [ref] + alts
+
+            if np.any([len(allele) > 1 for allele in alleles]):
+                continue
+            if not multiallelic:
+                if len(alts) > 1:
+                    continue
+
+            split_samples = [sample.split(':') for sample in split_line[9:]]
+            genotype_strs = [sample[0] for sample in split_samples]
+            genotype_list = [re.split("/|\\|", gt) for gt in genotype_strs]
+            skip_line = False
+            for i, gt in enumerate(genotype_list):
+                for j, allele in enumerate(gt):
+                    if allele == '.':
+                        if missing_to_ref:
+                            genotype_list[i][j] = '0'
+                        else:
+                            warnings.warn(f"Missing genotype at site {pos1}")
+                            skip_line = True
+            if skip_line:
+                continue
+            _genotypes.append(np.array(genotype_list))
+            _sites.append(pos1)
+
+    sites = np.array(_sites, dtype=np.int64)
+    genotypes = np.array(_genotypes, dtype=np.int64)
+
+    return sites, genotypes, sample_ids
+
+
+def genotypes_from_ts(
+    ts, 
+    individual_names=None,
+    bed_file=None, 
+    multiallelic=True,
+    missing_to_ref=False,
+    filtered=False,
+    interval=None,
+    verbose=0
+):
+    """
+    Obtain an array of genotypes from a tskit tree sequence.
+    """
+    if bed_file is not None:
+        regions, _ = utils._read_bed_file(bed_file)
+        mask = utils._regions_to_mask(regions)
+        masked = True
+    else:
+        masked = False
+
+    if interval is not None:
+        intervaled = True
+    else:
+        intervaled = False
+
+    _sites = []
+    _genotypes = []
+    counter = 0
+
+    vcf_str = ts.as_vcf(
+        position_transform=utils._increment1, individual_names=individual_names)
+
+    with io.StringIO(vcf_str) as fin:
+        for line in fin:
             if line.startswith('#'):
                 if line.startswith('#CHROM'):
                     sample_ids = line.split()[9:]
