@@ -2,17 +2,11 @@
 Functions for estimating confidence intervals and statistical testing.
 """
 
-from datetime import datetime
 import demes
 import numpy as np
 import moments
-import scipy
-import sys
-import os
-import pickle
 
 from . import inference
-from .datastructures import DPlusStats
 
 
 def _model_func(params, args=()):
@@ -119,19 +113,21 @@ def set_up_model_args(
     return params, param_names, model_args
 
 
-def set_up_bounds(option_file, params, param_names=None):
+def set_up_bounds(param_file, params, param_names=None):
     """
     Set up arrays of upper and lower bounds for parameters using the lower/upper 
-    limits and constraints specified the `options` object loaded by 
-    `moments.Demes.Inference._get_params_dict()`.
+    limits and constraints specified in the `options` object loaded by 
+    `moments.Demes.Inference._get_params_dict()` from `param_file`.
 
-    :param dict option_file: Pathname of YAML file definind parameters to be 
+    :param dict param_file: Pathname of YAML file defining parameters to be 
         loaded with `moments.Demes.Inference._get_params_dict()`.
     :param arr params: Array of ML parameter values.
     :param list param_names: Optional list of parameters for which to construct
         bounds; defaults to all parameters.
+
+    :return tuple: Arrays of lower and upper bounds on parameters.
     """
-    options = moments.Demes.Inference._get_params_dict(option_file)
+    options = moments.Demes.Inference._get_params_dict(param_file)
     if param_names is None:
         param_names = [defs["name"] for defs in options["parameters"]]
     all_params = [specs["name"] for specs in options["parameters"]]
@@ -180,10 +176,36 @@ def FIM_uncerts(
     approx_method=None,
     model_func=_model_func,
     verbose=True,
-    bounds=None
+    bounds=None,
+    return_FIM=False
 ):
     """
+    Compute estimated parameter uncertainties using the Fisher Information
+    Matrix (FIM). Because our likelihoods are composite and because genetic
+    linkage violates statistical assumptions of independence, variances
+    estimated in this way will tend to be underestimates.
 
+    :param str graph_file: Pathname of best-fit YAML model file.
+    :param str param_file: Pathname of YAML parameter definition file.
+    :param list means: Empirical means.
+    :param list varcovs: Covariance matrices estimated via bootstrap
+    :param list pop_ids: List of populations represented in `means`, 
+        corresponding to deme names in `graph_file`.
+    :param np.ndarray bins: Array of bin edges.
+    :param float u: Fixed mutation rate parameter.
+    :param float fitted_u: Mutation rate, if fitted as a free parameter.
+    :param float delta: Step size for finite differences evalutation of
+        derivatives (default 0.01).
+    :param str approx_method: Method to use for approximating bin D+. Choose
+        from "midpoint" and "simpsons"; the latter is more accurate but slower
+    :param bool verbose: If True, print updates as matrices are computed.
+    :param tuple bounds: Optional tuple of arrays defining upper and lower 
+        bounds on parameters; if not given, bounds are set up using bounds
+        and constraints defined in `param_file`.
+    :param bool return_FIM: If True, return the FIM as well as uncerts. 
+
+    :returns tuple: List of parameter names, array of MLE values, array of
+        estimated standard errors. 
     """
     params, param_names, model_args = set_up_model_args(
         graph_file,
@@ -194,9 +216,10 @@ def FIM_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
+
     if bounds is None:
-        pass
-        # bounds = _set_up_bounds(param_file, params, param_names)
+        bounds = set_up_bounds(param_file, params, param_names)
+
     HH = get_godambe(
         params,
         model_func,
@@ -204,12 +227,17 @@ def FIM_uncerts(
         means,
         varcovs,
         delta=delta,
-        return_hessian=True,
+        just_hess=True,
         bounds=bounds,
         verbose=verbose
     )
+
     uncerts = np.sqrt(np.diag(np.linalg.inv(HH)))
-    return param_names, params, uncerts
+    if return_FIM:
+        ret = (param_names, params, uncerts, HH)
+    else:
+        ret = (param_names, params, uncerts)
+    return ret
 
 
 def GIM_uncerts(
@@ -226,11 +254,12 @@ def GIM_uncerts(
     approx_method=None,
     model_func=_model_func,
     verbose=True,
-    bounds=None
+    bounds=None,
+    return_GIM=False
 ):
     """
-    Compute parameter estimates using either the Fisher information matrix (FIM,
-    "fisher" method) or the Godambe information matrix (GIM, "godambe" method). 
+    Compute estimated parameter uncertainties using the Godambe Information
+    Matrix (GIM) to estimate a covariance matrix.
 
     This function is adapted from the Godambe uncertainty estimators already 
     implemented in `moments` and the methods of Coffman et al. 2015.
@@ -246,8 +275,7 @@ def GIM_uncerts(
         `fitted_u`.
     :param float fitted_u: Fitted mutation rate parameter. This value is
         appended to fitted parameters and uncerts are computed for it as well.
-    :param list bootstrap_reps: List of bootstrap replicate means. Required when
-        `method` is "godambe", otherwise not used.
+    :param list bootstrap_reps: List of bootstrap replicate means. 
     :param float delta: Optional step size for evaluating derivatives with 
         finite differences (default 0.01).
     :param str method: Method to use for computing standard deviations. Can be 
@@ -260,6 +288,7 @@ def GIM_uncerts(
     :param function model_func: Function to use when evaluating model 
         expectations (default `_model_func`). 
     :param verbose: If True (default), prints progress messages.
+    :param bool return_GIM: If True (default False), return the GIM and FIM.
 
     :returns tuple: List of parameter names, list of input parameter values, and 
         array of estimated standard deviations in best-fit parameters.
@@ -273,10 +302,11 @@ def GIM_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
+    
     if bounds is None:
-        pass
-        # bounds = _set_up_bounds(param_file, params, param_names)
-    GIM, HH, JJ = get_godambe(
+        bounds = set_up_bounds(param_file, params, param_names)
+
+    GIM, HH, JJ, score = get_godambe(
         params,
         model_func,
         model_args,
@@ -284,12 +314,16 @@ def GIM_uncerts(
         varcovs,
         bootstrap_reps=bootstrap_reps,
         delta=delta,
-        return_hessian=False,
         verbose=verbose,
         bounds=bounds
     )
+
     uncerts = np.sqrt(np.diag(np.linalg.inv(GIM)))
-    return param_names, params, uncerts
+    if return_GIM: 
+        ret = (param_names, params, uncerts, GIM, HH)
+    else:
+        ret = (param_names, params, uncerts)
+    return ret
 
 
 def LRT_adjust(
@@ -306,38 +340,44 @@ def LRT_adjust(
     model_func=_model_func
 ):
     """
-    Compute an adjustment for the likelihood-ratio test statistic when 
-    likelihoods are composite, after Coffman et al 2015. There is a typo in 
-    the supplement indicating that D_adj = D / factor; instead we should use
-    D_adj = adj * D, which is D_adj = adj * 2 * (ll(full) - ll(nested))
+    Compute an adjustment for the likelihood ratio test with composite 
+    likelihoods, after Coffman et al 2015. If ll_full and ll_nested are log-
+    likelihoods of a complex and nested model, the adjusted statistic is
+    `D_adj = adj * 2 * (ll_full - ll_nested)`.
 
-    :param array p0: ML parameter values fitted for "simple" (nested) model, 
-        extended to include values for "full" model.
+    :param np.ndarray p0: Vector of parameters corresponding to the complex 
+        model. Parameters left free in the nested model should be set to nested 
+        MLE values, while parameters fixed in the nested model should be set
+        to their fixed values. 
     :param tuple model_args: Modul arguments for "complex" model, constructed
         using `_set_up_model_args`.
     :param list means: List of empirical D+ means.
     :param list varcovs: List of covariance matrices obtained with bootstrap.
     :param list bootstrap_reps: List of bootstrap replicate means. All 
         replicates in this list are used to compute the adjustment factor.
-    :param array nested_idx: Indices of values in `p0` fixed in "simple" model.
+    :param np.ndarray nested_idx: Indices of nested parameters.
     :param float delta: Step size for finite-differences estimation of first
         and second derivatives.
     :param bool verbose: If True, print progress messages as the Hessian matrix
         is estimated.
+    :param tuple bounds: Optional tuple of lower and upper bounds on parameters.
+        If not given, bounds are generated automatically using bounds and 
+        constraints from the options file.
+    :param function model_func: Function to evaluate.
 
     :returns float: Adjustment factor for the LRT.
     """
     nested_idx = np.asarray(nested_idx)
 
-    def _diff_func(dparams, args=None):
+    def pass_func(dparams, args=None):
         params = np.array(p0, copy=True)
         params[nested_idx] = dparams
         return model_func(params, args=model_args)
     
     p_nested = p0[nested_idx]
-    GIM, HH, JJ = get_godambe( 
+    GIM, HH, JJ, score = get_godambe( 
         p_nested,
-        _diff_func,
+        pass_func,
         model_args,
         means,
         varcovs,
@@ -364,21 +404,24 @@ def get_godambe(
     bootstrap_reps=None,
     delta=0.01,
     steps=None,
-    return_hessian=False,
+    just_hess=False,
     verbose=True,
     bounds=None
 ):
     """
-    Compute the Godambe information matrix (GIM). 
+    Compute the Godambe information matrix (GIM), which is `G = H J^-1 H`
+    where `H` is the sensitivity matrix and `J` is the variability matrix 
+    (the expected variance of the score function, estimated by bootstrap).
 
     :param array p0: Array of maximum-likelihood parameter values.
     :param function model_func: Function for computing model expectations.
-    :param tuple model_args: Arguments for `model_func`
+    :param tuple model_args: Arguments for `model_func`. See `set_up_model_args`
     :param list means: Empirical means
     :param list varcovs: Covariance arrays obtained via bootstrap
-    :param list bootstrap_reps: List of means obtained via bootstrap.
+    :param list bootstrap_reps: List of means obtained via bootstrap. Not 
+        required if `just_hess` is True.
     :param float delta: Optional finite differences step size (default 0.01)
-    :param bool return_hessian: If True (default False), only estimate the 
+    :param bool just_hess: If True (default False), only estimate the 
         Hessian matrix; this operation does not require `bootstrap_reps`.
     :param bool verbose: If True (default), print updates at the evaluation of 
         each element.
@@ -389,9 +432,10 @@ def get_godambe(
         that the objective function can be evaluated at the value of the bound, 
         unless it is an infinite upper bound.
 
-    :returns tuple: Godambe (GIM), Hessian, and variability matrices.
+    :returns tuple: Godambe Information, sensitivity, and variability matrices
+        and expected score.
     """
-    if bootstrap_reps is None and not return_hessian:
+    if bootstrap_reps is None and not just_hess:
         raise ValueError("You must provide bootstrap replicates")
 
     def obj_func(params, means, varcovs, model_args):
@@ -414,11 +458,13 @@ def get_godambe(
         verbose=verbose,
         bounds=bounds
     )
-    if return_hessian:
+    if just_hess:
         return HH
 
+    # Compute expected score and J across bootstrap realizations
+    score = np.zeros((len(p0), 1))
     JJ = np.zeros((len(p0), len(p0)))
-    for i, rep_means in enumerate(bootstrap_reps):
+    for rep_means in bootstrap_reps:
         cU = get_grad(
             p0, 
             obj_func, 
@@ -429,11 +475,14 @@ def get_godambe(
             steps=steps,
             bounds=bounds
         )
-        cJ = np.matmul(cU, cU.T)
-        JJ += cJ
+        score += cU
+        _J = np.matmul(cU, cU.T)
+        JJ += _J
+    score = score / len(bootstrap_reps)
     JJ = JJ / len(bootstrap_reps)
-    GIM = np.matmul(np.matmul(HH, np.linalg.inv(JJ)), HH)
-    return GIM, HH, JJ
+    J_inv = np.linalg.inv(JJ)
+    GIM = HH @ J_inv @ HH
+    return GIM, HH, JJ, score
 
 
 def get_hess(
@@ -448,7 +497,7 @@ def get_hess(
     bounds=None
 ):
     """
-    Compute the approximate Hessian matrix of the log-likelihood function with 
+    Compute the approximate Hessian matrix of the log-likelihood function using 
     finite differences. Uses empirical means and variances/coveriances obtained 
     by bootstrapping. 
 
@@ -469,9 +518,10 @@ def get_hess(
 
     :returns array: Estimated Hessian matrix
     """
+    # Check bounds; parameters are allowed to equal 0.
     if bounds is None:
         bounds = (np.zeros(len(p0)), np.full(len(p0), np.inf))
-    if np.any(p0 < bounds[0]) or np.any(p0 > bounds[1]):
+    if np.any(p0 < bounds[0]) or np.any(p0 >= bounds[1]):
         raise ValueError("All parameters must be within bounds")
     
     if steps is not None:
@@ -484,9 +534,9 @@ def get_hess(
             steps[steps == 0] = delta
 
     for ii in range(len(p0)):
-        if np.any((p0 - steps < bounds[0]) & (p0 + steps > bounds[1])):
+        if np.any((p0 - steps <= bounds[0]) & (p0 + steps >= bounds[1])):
             raise ValueError(
-                f"Derivative cannot be evaluated for parameter {ii}")
+                f"Parameter {ii} bounds prevent finite differences evaluation")
         
     args = (means, varcovs, model_args)
     
@@ -494,7 +544,10 @@ def get_hess(
     for ii in range(len(p0)):
         for jj in range(ii, len(p0)):
             elem = hessian_elem(func, p0, steps, bounds, ii, jj, args=args)
-            HH[ii, jj] = HH[jj, ii] = elem
+            if ii == jj:
+                HH[ii, jj] = elem
+            else:
+                HH[ii, jj] = HH[jj, ii] = elem
             if verbose:
                 print(inference._current_time(), 
                     f"Evaluated Hessian element ({ii}, {jj})")
@@ -527,12 +580,12 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
         # Forward
         if p0[ii] - steps[ii] <= lower[ii]:
             f_f = func(p0 + steps * Ii, *args)
-            f_2f = func(p0 + steps * 2 * Ii, *args)
+            f_2f = func(p0 + 2 * steps * Ii, *args)
             elem = (f_0 - 2 * f_f + f_2f) / steps[ii] ** 2
         # Backward
         elif p0[ii] + steps[ii] >= upper[ii]:
             f_b = func(p0 - steps * Ii, *args)
-            f_2b = func(p0 - steps * 2 * Ii, *args)
+            f_2b = func(p0 - 2 * steps * Ii, *args)
             elem = (f_0 - 2 * f_b + f_2b) / steps[ii] ** 2
         # Central
         else:
@@ -547,21 +600,18 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
         if p0[ii] + steps[ii] >= upper[ii]:
             # Backward/backward
             if p0[jj] + steps[jj] >= upper[jj]: 
-                print("back/back")
                 f_bb = func(p0 - steps * (Ii + Ij), *args)
                 f_0b = func(p0 - steps * Ij, *args)
                 f_b0 = func(p0 - steps * Ii, *args)
                 elem = (f_bb - f_0b - f_b0 + f_0) / (steps[ii] * steps[jj])
             # Backward/forward
             elif p0[jj] - steps[jj] <= lower[jj]:
-                print("back/for")
                 f_0f = func(p0 + steps * Ij, *args)
                 f_bf = func(p0 + steps * (Ij - Ii), *args)
                 f_b0 = func(p0 - steps * Ii, *args)
                 elem = (f_0f - f_0 - f_bf + f_b0) / (steps[ii] * steps[jj])
             # Backward/central
             else:
-                print("back/cen")
                 f_0f = func(p0 + steps * Ij, *args)
                 f_bf = func(p0 + steps * (Ij - Ii), *args)
                 f_0b = func(p0 - steps * Ij, *args)
@@ -571,21 +621,18 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
         elif p0[ii] - steps[ii] <= lower[ii]:
             # Forward/backward
             if p0[jj] + steps[jj] >= upper[jj]: 
-                print("for/back")
                 f_f0 = func(p0 + steps * Ii, *args)
                 f_fb = func(p0 + steps * (Ii - Ij), *args)
                 f_0b = func(p0 - steps * Ij, *args)
                 elem = (f_f0 - f_fb - f_0 + f_0b) / (steps[ii] * steps[jj])
             # Forward/forward
             elif p0[jj] - steps[jj] <= lower[jj]:
-                print("for/for")
                 f_ff = func(p0 + steps * (Ii + Ij), *args)
                 f_f0 = func(p0 + steps * Ii, *args)
                 f_0f = func(p0 + steps * Ij, *args)
                 elem = (f_ff - f_f0 - f_0f + f_0) / (steps[ii] * steps[jj])
             # Forward/central
             else:
-                print("for/cen")
                 f_ff = func(p0 + steps * (Ii + Ij), *args)
                 f_fb = func(p0 + steps * (Ii - Ij), *args)
                 f_0f = func(p0 + steps * Ij, *args)
@@ -595,7 +642,6 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
         else:
             # Central/backward
             if p0[jj] + steps[jj] >= upper[jj]: 
-                print("cen/back")
                 f_f0 = func(p0 + steps * Ii, *args)
                 f_fb = func(p0 + steps * (Ii - Ij), *args)
                 f_b0 = func(p0 - steps * Ii, *args)
@@ -603,7 +649,6 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
                 elem = (f_f0 - f_fb - f_b0 + f_bb) / (2 * steps[ii] * steps[jj])
             # Central/forward
             elif p0[jj] - steps[jj] <= lower[jj]:
-                print("cen/for")
                 f_ff = func(p0 + steps * (Ii + Ij), *args)
                 f_f0 = func(p0 + steps * Ii, *args)
                 f_bf = func(p0 + steps * (Ij - Ii), *args)
@@ -611,7 +656,6 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
                 elem = (f_ff - f_f0 - f_bf + f_b0) / (2 * steps[ii] * steps[jj])
             # Central/central
             else:
-                print("cen/cen")
                 f_ff = func(p0 + steps * (Ii + Ij), *args)
                 f_fb = func(p0 + steps * (Ii - Ij), *args)
                 f_bf = func(p0 + steps * (Ij - Ii), *args)
@@ -665,32 +709,31 @@ def get_grad(
 
     for ii in range(len(p0)):
         if np.any((p0 - steps <= bounds[0]) & (p0 + steps >= bounds[1])):
-            # TODO make error message more helpful
             raise ValueError(
-                f"Derivative cannot be evaluated for parameter {ii}")
+                f"Parameter {ii} bounds prevent finite differences evaluation")
         
     indicator = lambda n, i: np.array([0 if j != i else 1 for j in range(n)])
     args = (means, varcovs, model_args)
     score = np.zeros((len(p0), 1))
     for ii in range(len(p0)):
-        vec = indicator(len(p0), ii)
+        Ii = indicator(len(p0), ii)
         # One-sided (forward) finite differences
         if p0[ii] - steps[ii] <= bounds[0][ii]:
             f_0 = func(p0, *args)
-            f_f = func(p0 + steps * vec, *args)
-            score[ii] = (f_f - f_0) / steps[ii]
+            f_f = func(p0 + steps * Ii, *args)
+            score[ii, 0] = (f_f - f_0) / steps[ii]
 
         # One-sided (backward) finite differences
         elif p0[ii] + steps[ii] >= bounds[1][ii]:
             f_0 = func(p0, *args)
-            f_b = func(p0 + steps * -vec, *args)
-            score[ii] = (f_0 - f_b) / steps[ii]
+            f_b = func(p0 - steps * Ii, *args)
+            score[ii, 0] = (f_0 - f_b) / steps[ii]
 
         # Central
         else:
-            f_b = func(p0 + steps * -vec, *args)
-            f_f = func(p0 + steps * vec, *args)
-            score[ii] = (f_f - f_b) / (2 * steps[ii])
+            f_b = func(p0 - steps * Ii, *args)
+            f_f = func(p0 + steps * Ii, *args)
+            score[ii, 0] = (f_f - f_b) / (2 * steps[ii])
 
     return score
 

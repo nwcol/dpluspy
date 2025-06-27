@@ -10,6 +10,7 @@ import moments
 import scipy
 import os
 import pickle
+import random
 
 from . import bootstrapping
 from .datastructures import DPlusStats
@@ -98,6 +99,7 @@ def load_bootstrap_reps(
     if num_reps is not None:
         if num_reps > len(replicates):
             raise ValueError("`num_reps` exceeds number of replicates")
+        replicates = random.sample(replicates, k=num_reps)
     if graph is not None:
         to_pops = graph_data_overlap(graph, pop_ids)
     if to_pops is not None:
@@ -351,12 +353,12 @@ def optimize(
     :param int max_iter: Maximum number of optimization iterations.
     :param bool log: If True, optimize over the log of params (default False)
     :param int verbose: Print convergence messsages every `verbose` function 
-        calls.
+        calls (default 1). If False, prints nothing.
     :param bool overwrite: If True, overwrites existing files with output 
         (default False).
     :param str output: Pathname to write fitted graph file.
     :param bool use_H: If True, fit H statistics as well as D+ (default False).
-    :param vool use_afs: If True, fit to the allele frequency spectrum `afs` 
+    :param bool use_afs: If True, fit to the allele frequency spectrum `afs` 
         (default False). Requires that `afs` and `L` are given.
     :param moments.Spectrum afs: AFS (SFS) data to use in fitting.
     :param int L: Effective sequence length, required when fitting the AFS.
@@ -429,11 +431,12 @@ def optimize(
             constraints=constraints
         )
     
-    print(_current_time(), f"Fitting D+ to data for {pop_ids}")
-    namestr = "".join([f"{n:>10}" for n in param_names])
-    pstr = "".join([f"{float(p):>10.3}" for p in params_0])
-    print(f"{'Call':<5}{'LL':>10} [{namestr}]")
-    print(f"{'init':<5}{'-':>10} [{pstr}]")
+    if verbose > 0:
+        print(_current_time(), f"Fitting D+ to data for {pop_ids}")
+        namestr = "".join([f"{n:>10}" for n in param_names])
+        pstr = "".join([f"{float(p):>10.3}" for p in params_0])
+        print(f"{'Call':<5}{'LL':>10} [{namestr}]")
+        print(f"{'init':<5}{'-':>10} [{pstr}]")
 
     if log:
         objective = _log_object_func
@@ -482,7 +485,8 @@ def optimize(
             params_0,
             args=args,
             maxiter=max_iter,
-            full_output=True
+            full_output=True,
+            disp=False
         )
         fit_params, fopt, num_iter, func_calls, flag = ret[:5]
 
@@ -493,6 +497,7 @@ def optimize(
             args=args,
             maxiter=max_iter,
             full_output=True,
+            disp=False
         )
         fit_params, fopt, direc, num_iter, func_calls, flag = ret[:6]
 
@@ -507,8 +512,8 @@ def optimize(
             args=args,
             maxiter=max_iter,
             epsilon=epsilon,
-            disp=False,
-            full_output=True
+            full_output=True,
+            disp=False
         )
         fit_params, fopt, _, __, ___, grad_calls, flag = ret[:7]
         num_iter = grad_calls
@@ -529,7 +534,8 @@ def optimize(
             bounds=bounds,
             epsilon=epsilon,
             pgtol=1e-7,
-            approx_grad=True
+            approx_grad=True,
+            disp=False
         )
         fit_params, fopt, output_dict = ret
         num_iter = output_dict["nit"]
@@ -543,10 +549,12 @@ def optimize(
 
     ll = -fopt
 
-    print(f"Log-likelihood:\t{np.round(ll, 2)}")
-    print("Fitted parameters:")
-    for name, value in zip(param_names, fit_params):
-        print(f"{name}\t{value:.3}")
+    if verbose > 0:
+        print(f"Finished with flag {flag}")
+        print(f"Log-likelihood:\t{np.round(ll, 2)}")
+        print("Fitted parameters:")
+        for name, value in zip(param_names, fit_params):
+            print(f"{name}\t{value:.3}")
 
     global _counter
 
