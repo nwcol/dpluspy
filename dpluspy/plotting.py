@@ -269,7 +269,7 @@ def plot_d_plus_curves(
 
     if len(labels) > 1:
             # why not use a rule like this to determine the number of legend columns
-            ncols = int(np.ceil(np.sqrt(len(labels))))
+            ncols = int(np.ceil(np.sqrt(len(labels))) + 1)
             fig.legend(
                 framealpha=0, loc='lower center', ncols=ncols, 
                 bbox_to_anchor=(0.5, -0.1))

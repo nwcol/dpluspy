@@ -235,7 +235,7 @@ def _object_func(
     lower_bounds=None,
     upper_bounds=None,
     constraints=None,
-    verbose=None,
+    verbose=0,
     use_H=False,
     use_afs=False,
     afs=None,

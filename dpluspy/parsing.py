@@ -16,6 +16,345 @@ from . import utils
 
 def parse_statistics(
     vcf_file,
+    ts_sample_ids=None,
+    bed_file=None,
+    pop_file=None,
+    pop_mapping=None,
+    rec_map_file=None,
+    pos_col="Position(bp)",
+    map_col="Map(cM)",
+    map_sep=None,
+    interp_method='linear',
+    r=None,
+    r_bins=None,
+    bp_bins=None,
+    mut_map_file=None,
+    mut_col=None,
+    interval=None,
+    intervals=None,
+    interval_file=None,
+    chromosome="None",
+    phased=False,
+    get_cross_pop=True,
+    get_denoms=True,
+    allow_multi=True,
+    missing_to_ref=False,
+    apply_filter=False,
+    scheme="overhang"
+):
+    """
+    Compute D+, H and their denominators from a VCF file or Tskit tree seq. 
+    Calls itself recursively if `intervals` or `interval_file` are given.
+
+    TODO finish
+    
+    :param str vcf_file: Pathname of VCF file, or optionally a Tskit tree
+        sequence instance with mutations. Provides sites and genotypes.
+    :param list ts_sample_ids: Names of ts samples when a tree seq is given.
+    :param str bed_file: Pathname of BED file defining regions to parse,
+        required to compute the denominator
+    :param str pop_file: Optional pathname of whitespace-separated file mapping 
+        sample IDs to populations. Default behavior takes each VCF sample as a 
+        member of a distinct population
+    :param dict pop_mapping: Optional dictionary mapping populations to lists 
+        of sample IDs
+    :param str rec_map_file: Optional recombination map in HapMap or BEDGRAPH
+        format. `rec_map_file` or `r` must be given.
+    :param str pos_col: Rec. map "position" column (default "Position(bp)")
+    :param str pos_col: Rec. map "map" column to use (default "Map(cM)")
+    :param str map_sep: TODO ADD
+
+
+
+    :param array r_bins: Recombination distance bin edges, given in units of r.
+
+    :param str chromosome: Optional chromosome ID, used to name intervals
+    :param bool phased: If True, treat all VCF data as phased and use the 
+        haplotype estimators for D+ (default False)
+    :param bool get_cross_pop: If True (default), compute cross-population 
+        D+ and H statistics
+    :param bool get_denoms: If true (default), compute the denominator for D+.
+    :param bool allow_multi: If True (default), parse over multiallelic sites
+    :param bool missing_to_ref: If True (default False), convert missing allele
+        data to the reference; otherwise sites with missing data are skipped
+    :param bool apply_filter: If True, exclude VCF sites with "FAIL" in "FILTER"
+    :param str scheme: Method to use for recording D+ statistic between genomic
+        intervals. See `compute_statistics` for more information.
+
+    :returns dict: A dictionary holding raw windowed sums of D+ and H statistics
+    """
+    if interval is not None:
+        intervals = [interval]
+    if interval_file is not None:
+        intervals = np.loadtxt(interval_file)
+    intervals = [np.asarray(x).flatten() for x in intervals]
+
+    if get_denoms:
+        if bed_file is not None: 
+            positions = utils._read_bed_file_positions(bed_file) + 1
+            seq_length = positions[-1]
+        else:
+            seq_length = intervals[-1][-1] + 1
+            positions = np.arange(1, seq_length)
+
+        if mut_map_file is not None:
+            mut_map = _load_mutation_map(
+                mut_map_file, positions, map_col=mut_col)
+        else:
+            mut_map = None
+    else:
+        positions = None
+        mut_map = None
+        seq_length = intervals[-1][-1] + 1
+
+    if r_bins is not None:
+        if isinstance(r_bins, str):
+            r_bins = np.loadtxt(r_bins)
+        # Convert bins in r to Morgans 
+        bins = utils._map_function(r_bins)
+        if rec_map_file is not None:
+            map_fxn = _load_recombination_map(
+                rec_map_file, 
+                pos_col=pos_col,
+                map_col=map_col,
+                interp_method=interp_method
+            )
+        elif r is not None:
+            map_fxn = _get_uniform_recombination_map(r, seq_length)
+        else:
+            raise ValueError("You must provide recombination map information")
+    elif bp_bins is not None:
+        map_fxn = lambda x: x
+    else:
+        raise ValueError("You must provide bins")
+
+    if pop_file is not None:
+        pop_mapping = _load_pop_file(pop_file)
+
+    if pop_mapping is not None:
+        vcf_ids = [sample for pop in pop_mapping for sample in pop_mapping[pop]]
+    else:
+        vcf_ids = None
+
+    # Read genotypes from a VCF file or extract them from a tree sequence
+    if isinstance(vcf_file, str):
+        sites, genotypes, sample_ids = get_vcf_genotypes(
+            vcf_file, 
+            sample_ids=vcf_ids,
+            bed_file=bed_file, 
+            allow_multi=allow_multi,
+            missing_to_ref=missing_to_ref,
+            apply_filter=apply_filter
+        )
+    else:
+        sites, genotypes, sample_ids = get_ts_genotypes(
+            vcf_file, 
+            ts_sample_ids=ts_sample_ids,
+            sample_ids=vcf_ids,
+            bed_file=bed_file, 
+            allow_multi=allow_multi,
+            missing_to_ref=missing_to_ref,
+            apply_filter=apply_filter
+        )
+    pop_genotypes = _build_pop_genotypes(
+        genotypes, sample_ids, pop_mapping=pop_mapping)
+    
+    ret = compute_statistics(    
+        sites,
+        pop_genotypes,
+        map_fxn,
+        bins,
+        intervals,
+        positions=positions,
+        mut_map=mut_map,
+        chromosome=chromosome,
+        get_cross_pop=get_cross_pop,
+        phased=phased,
+        scheme=scheme
+    )
+    return ret
+
+
+def compute_statistics(
+    sites,
+    pop_genotypes,
+    map_fxn,
+    bins,
+    intervals,
+    positions=None,
+    mut_map=None,
+    chromosome="None",
+    get_cross_pop=True,
+    phased=False,
+    scheme="overhang"
+):
+    """
+    Compute D+, H statistics and their denominators from loaded data.
+
+    TODO finish this docstring and others
+
+    :param array sites: Array of VCF site positions
+    :param dict pop_genotypes: Dictionary mapping population names to genotype
+        arrays
+    :param function map_fxn: Function for computing map coordinates from 
+        physical positions
+    :param array bins: Bin edges; may be in Morgans or physical units (bp)
+    :param list intervals: Window intervals.
+    :param array positions: 
+    :param array mut_map: Optional mutation map, 
+    :param str chromosome:
+    :param bool get_cross_pop:
+    :param bool phased:
+    
+    :returns dict:
+    """
+    pop_ids = list(pop_genotypes.keys())
+    denoms = None
+    mut_facs = None 
+
+    ret = dict()
+
+    if scheme == "simple":
+        for ii, interval in enumerate(intervals):
+            interval = interval[:2]
+            if positions is not None:
+                denoms = denoms_within(positions, map_fxn, bins, interval)
+            if mut_map is not None:
+                mut_facs = None
+            sums = stats_within(sites, pop_genotypes, map_fxn, bins, interval, 
+                get_cross_pop=get_cross_pop, phased=phased)
+            stats = dict()
+            stats["bins"] = bins
+            stats["pop_ids"] = pop_ids
+            stats["sums"] = sums
+            if denoms is not None:
+                stats["denoms"] = denoms
+            if mut_facs is not None:
+                stats["mut_facs"] = mut_facs
+            key = (chromosome, ii)
+            ret[key] = stats
+
+    elif scheme == "overhang":
+        for ii, interval in enumerate(intervals):
+            assert len(interval) == 3
+            interval0 = interval[:2]
+            interval1 = interval[1:]
+            intervals = (interval0, interval1)
+            if positions is not None:
+                denoms = denoms_within(positions, map_fxn, bins, interval0)
+                if interval1[0] < interval[1]:
+                    denoms += denoms_between(positions, map_fxn, bins, intervals)
+            if mut_map is not None:
+                mut_facs = None
+            sums = stats_within(sites, pop_genotypes, map_fxn, bins, interval0, 
+                get_cross_pop=get_cross_pop, phased=phased)
+            if interval1[0] < interval[1]:
+                sums += stats_between(sites, pop_genotypes, map_fxn, bins, 
+                    intervals, get_cross_pop=get_cross_pop, phased=phased)
+            stats = dict()
+            stats["bins"] = bins
+            stats["pop_ids"] = pop_ids
+            stats["sums"] = sums
+            if denoms is not None:
+                stats["denoms"] = denoms
+            if mut_facs is not None:
+                stats["mut_facs"] = mut_facs
+            key = (chromosome, ii)
+            ret[key] = stats
+            
+    elif scheme == "complex":
+        raise ValueError("Not yet implemented")
+    
+    return ret
+
+
+def denoms_within(positions, map_fxn, bins, interval):
+    """
+    
+    """
+    start, end = interval
+    where = np.where((positions >= start) & (positions < end))[0]
+    pos_map = map_fxn(positions[where])
+    denoms = _count_locus_pairs(pos_map, bins)
+    denoms = np.append(denoms, len(positions))
+    return denoms
+
+
+def denoms_between(positions, map_fxn, bins, intervals):
+    """
+    
+    """
+    (lstart, lend), (rstart, rend) = intervals
+    where_left = np.where((positions >= lstart) & (positions < lend))[0]
+    left_map = map_fxn(positions[where_left])
+    where_right = np.where((positions >= rstart) & (positions < rend))[0]
+    right_map = map_fxn(positions[where_right])
+    denoms = _count_locus_pairs_between(left_map, right_map, bins)
+    denoms = np.append(denoms, 0)
+    return denoms
+
+
+def stats_within(
+    sites, 
+    pop_genotypes, 
+    map_fxn, 
+    bins, 
+    interval, 
+    get_cross_pop=True,
+    phased=True
+):
+    """
+    
+    """
+    start, end = interval
+    where = np.where((sites >= start) & (sites < end))[0]
+    sub_genotypes = {p: pop_genotypes[p][where] for p in pop_genotypes}
+    site_map = map_fxn(sites[where])
+    sums = _compute_stats_within(
+        sub_genotypes, 
+        site_map, 
+        bins, 
+        cross_pop=get_cross_pop, 
+        phased=phased
+    )
+    return sums
+
+
+def stats_between(    
+    sites, 
+    pop_genotypes, 
+    map_fxn, 
+    bins, 
+    intervals, 
+    get_cross_pop=True,
+    phased=True
+):
+    """
+    
+    """
+    (lstart, lend), (rstart, rend) = intervals
+    where_left = np.where((sites >= lstart) & (sites < lend))[0]
+    left_genotypes = {p: pop_genotypes[p][where_left] for p in pop_genotypes}
+    left_map = map_fxn(sites[where_left])
+
+    where_right = np.where((sites >= rstart) & (sites < rend))[0]
+    right_genotypes = {p: pop_genotypes[p][where_right] for p in pop_genotypes}
+    right_map = map_fxn(sites[where_right])
+
+    sums = _compute_stats_between(
+        left_genotypes, 
+        right_genotypes, 
+        left_map, 
+        right_map, 
+        bins, 
+        cross_pop=get_cross_pop, 
+        phased=phased
+    )
+    return sums
+
+
+def _parse_statistics(
+    vcf_file,
     bed_file=None,
     pop_file=None,
     pop_mapping=None,
@@ -346,7 +685,7 @@ def parse_statistics_fancy(
     return stats
 
 
-def compute_statistics(
+def __compute_statistics(
     vcf_file,
     bed_file=None,
     pop_file=None,
@@ -570,11 +909,11 @@ def compute_ts_stats(
         pop_ids = None
 
     if within:
-        sites, genotype_matrix, sample_ids = genotypes_from_ts(
+        sites, genotype_matrix, sample_ids = get_ts_genotypes(
             ts, 
             bed_file=bed_file, 
             interval=interval, 
-            individual_names=individual_names
+            ts_sample_ids=individual_names
         )
         if len(sites) == 0:
             warnings.warn('Loaded empty genotype array')
@@ -588,17 +927,17 @@ def compute_ts_stats(
             pop_genotypes, site_map, bins, cross_pop=cross_pop, phased=phased,
         )
     else:
-        sites_left, genotype_matrix_left, sample_ids = genotypes_from_ts(
+        sites_left, genotype_matrix_left, sample_ids = get_ts_genotypes(
             ts, 
             bed_file=bed_file, 
             interval=left_interval, 
-            individual_names=individual_names
+            ts_sample_ids=individual_names
         )
-        sites_right, genotype_matrix_right, _ = genotypes_from_ts(
+        sites_right, genotype_matrix_right, _ = get_ts_genotypes(
             ts, 
             bed_file=bed_file, 
             interval=right_interval, 
-            individual_names=individual_names
+            ts_sample_ids=individual_names
         )
         if len(sites_left) == 0 or len(sites_right) == 0:
             warnings.warn('Loaded empty genotype array(s)')
@@ -915,7 +1254,6 @@ def _build_pop_genotypes(genotypes, sample_ids, pop_mapping=None):
     pop_genotypes = {}
     for pop_id in pop_ids:
         pop_genotypes[pop_id] = genotypes[:, pop_indices[pop_id]]
-
     return pop_genotypes 
 
 
@@ -939,7 +1277,6 @@ def _flatten_pop_genotypes(pop_genotypes):
         s, n, _ = array.shape
         flat_array = np.reshape(array, (s, 2 * n))
         flat_genotypes[pop_id] = flat_array
-
     return flat_genotypes
 
 
@@ -989,7 +1326,6 @@ def _compute_pi(pop_genotypes, cross_pop=True):
                 sum_ij = numer / (ni * nj)
                 sums[idx] = sum_ij 
             idx += 1
-
     return sums
 
 
@@ -1038,15 +1374,12 @@ def _compute_stats_within(
                 Gj = pop_genotypes[pop_j]
                 if phased:
                     sums[:-1, idx] = _cross_haplotype_Dplus(
-                        Gi, Gj, site_map, bins
-                    )
+                        Gi, Gj, site_map, bins)
                 else:
                     sums[:-1, idx] = _cross_genotype_Dplus(
-                        Gi, Gj, site_map, bins
-                    )
+                        Gi, Gj, site_map, bins)
             idx += 1
     sums[-1] = _compute_pi(pop_genotypes, cross_pop=cross_pop)
-
     return sums
 
 
@@ -1092,12 +1425,10 @@ def _compute_stats_between(
                 G_r = pop_genotypes_right[pop_i]
                 if phased:
                     sums[:-1, idx] = _haplotype_Dplus_between(
-                        G_l, G_r, site_map_left, site_map_right, bins
-                    )
+                        G_l, G_r, site_map_left, site_map_right, bins)
                 else:
                     sums[:-1, idx] = _genotype_Dplus_between(
-                        G_l, G_r, site_map_left, site_map_right, bins
-                    )
+                        G_l, G_r, site_map_left, site_map_right, bins)
             else:
                 if not cross_pop:
                     continue
@@ -1108,16 +1439,13 @@ def _compute_stats_between(
                 if phased:
                     sums[:-1, idx] = _cross_haplotype_Dplus_between(
                         G_li, G_lj, G_ri, G_rj, 
-                        site_map_left, site_map_right, bins
-                    )
+                        site_map_left, site_map_right, bins)
                 else:
                     sums[:-1, idx] = _cross_genotype_Dplus_between(
                         G_li, G_lj, G_ri, G_rj, 
-                        site_map_left, site_map_right, bins
-                    )
+                        site_map_left, site_map_right, bins)
             idx += 1
     sums[-1] = 0
-
     return sums
 
 
@@ -1140,7 +1468,6 @@ def _haplotype_Dplus(haplotypes, site_map, bins):
             for j in range(i + 1, n):
                 numer += _haplotype_Dplus(haplotypes[:, [i, j]], site_map, bins)
         Dplus = numer / (n * (n - 1) / 2)
-
     return Dplus
 
 
@@ -1179,7 +1506,6 @@ def _haplotype_Dplus_between(
                     bins
                 )
         Dplus = numer / (n * (n - 1) / 2)
-
     return Dplus
 
 
@@ -1202,7 +1528,6 @@ def _cross_haplotype_Dplus(haplotypes_i, haplotypes_j, site_map, bins):
                     haplotypes_i[:, [k]], haplotypes_j[:, [l]], site_map, bins
                 )
         Dplus = numer / (ni * nj)
-
     return Dplus
  
 
@@ -1244,7 +1569,6 @@ def _cross_haplotype_Dplus_between(
                     bins
                 )
         Dplus = numer / (ni * nj)
-
     return Dplus
 
 
@@ -1270,7 +1594,6 @@ def _genotype_Dplus(genotypes, site_map, bins):
         for i in range(n):
             numer += _genotype_Dplus(genotypes[:, [i], :], site_map, bins)
         Dplus = numer / n
-
     return Dplus
 
 
@@ -1308,7 +1631,6 @@ def _genotype_Dplus_between(
                 bins
             )
         Dplus = numer / n
-
     return Dplus
 
 
@@ -1335,7 +1657,6 @@ def _cross_genotype_Dplus(genotypes_i, genotypes_j, site_map, bins):
                     bins
                 )
         Dplus = numer / (ni * nj)
-
     return Dplus
 
 
@@ -1380,7 +1701,6 @@ def _cross_genotype_Dplus_between(
                     bins
                 )
         Dplus = numer / (ni * nj)
-
     return Dplus
 
 
@@ -1665,40 +1985,29 @@ def _load_mutation_map(filename, positions, map_col="mut_map"):
     return mut_map
 
 
-def read_vcf(
+def get_vcf_genotypes(
     vcf_file, 
+    sample_ids=None,
     bed_file=None, 
-    multiallelic=True,
+    allow_multi=True,
     missing_to_ref=False,
-    filtered=False,
+    apply_filter=False,
     interval=None,
     verbose=0
 ):
     """
     Read sites and genotypes from a VCF file.
 
-    If return_dict is True, returns a dictionary mapping sites to site genotype
-    arrays with shapes (n, 2) where n is the number of samples. Otherwise,
-    returns an array of sites, an array of genotypes with shape (s, n, 2) where
-    s is the number of sites. This object will occupy a large amount of memory
-    when the sample size is large- intended usage is for sample sizes on the 
-    order of one or two dozen diploids.
-
-    We encode genotypes represented as `A1/A2` or `A1|A2` in the file in the 
-    form `[A1, A2]`. Thus if data is phased, the genotype array can be 
-    converted into a haplotype array by flattening over the last axis. Also, 
-    multiallelic sites are easily represented in this format, e.g. as
-    `[[0, 1], [0, 2]]`.
-
-    :param vcf_file: Pathname of a VCF file
-    :param bed_file: Filename for BED mask to impose on sites (default None).
-    :param multiallelic: If True, do not skip multiallelic sites 
-        (default True).
-    :param missing_to_ref: If True, genotypes ./. and .|. will be read as 0/0
-        or 0|0 respectively (default False skips sites with any missing data).
-    :param interval: 2-tuple or list specifying 1-indexed upper and lower 
-        bounds on positions, where the upper bound is noninclusive 
-        (default None).
+    Genotypes are represented in a numpy array with shape `(l, n, 2)`, where 
+    `l` is the number of sites and `n` the number of diploid samples. 
+    
+    :param str vcf_file: Pathname of a VCF file
+    :param str bed_file: Optional pathname of BED mask to impose on sites
+    :param bool allow_mutli: If True (default), do not skip multiallelic sites
+    :param bool missing_to_ref: If True, genotypes ./. and .|. will be read as
+        0/0 or 0|0 respectively (default False skips sites with missing data).
+    :param tuple interval: Optional 2-tuple/list specifying 1-indexed upper and 
+        lower bounds on POS, where the upper bound is noninclusive
     :param verbose: If > 0, print a progress message every `verbose` lines.
 
     :returns: Array of 1-indexed sites, array of genotypes, list of sample IDs
@@ -1706,178 +2015,182 @@ def read_vcf(
     if bed_file is not None:
         regions, _ = utils._read_bed_file(bed_file)
         mask = utils._regions_to_mask(regions)
-        masked = True
     else:
-        masked = False
+        mask = None
 
-    if interval is not None:
-        intervaled = True
+    if vcf_file.endswith(".gz"):
+        opener = gzip.open 
     else:
-        intervaled = False
+        opener = open
 
-    if vcf_file.endswith('.gz'):
-        open_func = gzip.open 
-    else:
-        open_func = open
-
-    _sites = []
-    _genotypes = []
-    counter = 0
-
-    with open_func(vcf_file, 'rb') as fin:
-        for lineb in fin:
-            line = lineb.decode()
-            if line.startswith('#'):
-                if line.startswith('#CHROM'):
-                    sample_ids = line.split()[9:]
-                continue
-            split_line = line.split()
-            pos1 = int(split_line[1])
-            if verbose > 1:
-                if counter % verbose == 0 and counter > 1:
-                    print(utils._current_time(),
-                        f'parsed position {pos1} line {counter}')
-            counter += 1
-            if intervaled:
-                if pos1 < interval[0]:
-                    continue
-                if pos1 >= interval[1]:
-                    break
-            if masked:
-                pos0 = pos1 - 1
-                if pos0 >= len(mask):
-                    break
-                if mask[pos0] == True:
-                    continue
-
-            if filtered:
-                filtr = split_line[6]
-                if filtr not in ('PASS', '.'):
-                    continue
-            
-            ref = split_line[3]
-            alts = split_line[4].split(',')
-            alleles = [ref] + alts
-
-            if np.any([len(allele) > 1 for allele in alleles]):
-                continue
-            if not multiallelic:
-                if len(alts) > 1:
-                    continue
-
-            split_samples = [sample.split(':') for sample in split_line[9:]]
-            genotype_strs = [sample[0] for sample in split_samples]
-            genotype_list = [re.split("/|\\|", gt) for gt in genotype_strs]
-            skip_line = False
-            for i, gt in enumerate(genotype_list):
-                for j, allele in enumerate(gt):
-                    if allele == '.':
-                        if missing_to_ref:
-                            genotype_list[i][j] = '0'
-                        else:
-                            warnings.warn(f"Missing genotype at site {pos1}")
-                            skip_line = True
-            if skip_line:
-                continue
-            _genotypes.append(np.array(genotype_list))
-            _sites.append(pos1)
-
-    sites = np.array(_sites, dtype=np.int64)
-    genotypes = np.array(_genotypes, dtype=np.int64)
-
+    with opener(vcf_file, 'rb') as fin:
+                sites, genotypes, sample_ids = _read_vcf(
+            fin,
+            mask=mask,
+            sample_ids=sample_ids,
+            allow_multi=allow_multi,
+            missing_to_ref=missing_to_ref,
+            apply_filter=apply_filter,
+            interval=interval,
+            verbose=verbose
+        )
     return sites, genotypes, sample_ids
 
 
-def genotypes_from_ts(
+def get_ts_genotypes(
     ts, 
-    individual_names=None,
+    ts_sample_ids=None,
+    sample_ids=None,
     bed_file=None, 
-    multiallelic=True,
+    allow_multi=True,
     missing_to_ref=False,
-    filtered=False,
+    apply_filter=False,
     interval=None,
     verbose=0
 ):
     """
-    Obtain an array of genotypes from a tskit tree sequence.
+    Read an array of sites and an array of genotype codes from a tskit tree
+    sequence with mutations. 
+
+    :param TreeSequence ts: Tskit tree sequence
+    :param list ts_sample_ids: Optional IDs for tree sequence samples; if not
+        given then ts samples are named "tsk0", "tsk1", etc.
+    :param list sample_ids: Optional list of sample IDs to include
+    :param str bed_file: Optional pathname of BED mask file
+    :param bool allow_multi: If True (default), allow multiallelic sites
+    :param bool missing_to_ref: If True (default False), sets missing alleles 
+        to "0"; otherwise skips sites with missing data
+    :param bool apply_filter: If True, skips sites with "FILTER" column not
+        equal to "PASS" or "."
+    :param tuple interval: Optional interval for sites
+    :param int verbose: If > 0, prints progress messages every `verbose` lines
+
+    :returns tuple: Sites array, genotype array, list of sample IDs
     """
     if bed_file is not None:
         regions, _ = utils._read_bed_file(bed_file)
         mask = utils._regions_to_mask(regions)
-        masked = True
-    else:
-        masked = False
+    else: 
+        mask = None
 
-    if interval is not None:
-        intervaled = True
-    else:
-        intervaled = False
-
-    _sites = []
-    _genotypes = []
-    counter = 0
-
-    vcf_str = ts.as_vcf(
-        position_transform=utils._increment1, individual_names=individual_names)
+    vcf_str = ts.as_vcf(position_transform=utils._increment1, 
+        individual_names=ts_sample_ids)
 
     with io.StringIO(vcf_str) as fin:
-        for line in fin:
-            if line.startswith('#'):
-                if line.startswith('#CHROM'):
-                    sample_ids = line.split()[9:]
-                continue
-            split_line = line.split()
-            pos1 = int(split_line[1])
-            if verbose > 1:
-                if counter % verbose == 0 and counter > 1:
-                    print(utils._current_time(),
-                        f'parsed position {pos1} line {counter}')
-            counter += 1
-            if intervaled:
-                if pos1 < interval[0]:
-                    continue
-                if pos1 >= interval[1]:
-                    break
-            if masked:
-                pos0 = pos1 - 1
-                if pos0 >= len(mask):
-                    break
-                if mask[pos0] == True:
-                    continue
-
-            if filtered:
-                filtr = split_line[6]
-                if filtr not in ('PASS', '.'):
-                    continue
-            
-            ref = split_line[3]
-            alts = split_line[4].split(',')
-            alleles = [ref] + alts
-
-            if np.any([len(allele) > 1 for allele in alleles]):
-                continue
-            if not multiallelic:
-                if len(alts) > 1:
-                    continue
-
-            split_samples = [sample.split(':') for sample in split_line[9:]]
-            genotype_strs = [sample[0] for sample in split_samples]
-            genotype_list = [re.split("/|\\|", gt) for gt in genotype_strs]
-            skip_line = False
-            for i, gt in enumerate(genotype_list):
-                for j, allele in enumerate(gt):
-                    if allele == '.':
-                        if missing_to_ref:
-                            genotype_list[i][j] = '0'
-                        else:
-                            warnings.warn(f"Missing genotype at site {pos1}")
-                            skip_line = True
-            if skip_line:
-                continue
-            _genotypes.append(np.array(genotype_list))
-            _sites.append(pos1)
-
-    sites = np.array(_sites, dtype=np.int64)
-    genotypes = np.array(_genotypes, dtype=np.int64)
-
+        sites, genotypes, sample_ids = _read_vcf(
+            fin,
+            mask=mask,
+            sample_ids=sample_ids,
+            allow_multi=allow_multi,
+            missing_to_ref=missing_to_ref,
+            apply_filter=apply_filter,
+            interval=interval,
+            verbose=verbose
+        )
     return sites, genotypes, sample_ids
+
+
+def _read_vcf(
+    fin, 
+    sample_ids=None,
+    mask=None, 
+    allow_multi=True,
+    missing_to_ref=False,
+    apply_filter=False,
+    interval=None,
+    verbose=0
+):
+    """
+    Read sites, an array of genotype codes, and sample IDs from an opened VCF 
+    file or file-like object. 
+
+    :param fin: 
+    :param list sample_ids: Optional list of sample IDs to include in output
+    :param array mask: Optional site-resolution genetic mask array. Should
+        equal True where sites are excluded by the mask.
+    :param bool allow_multi: If True (default), allow multiallelic sites
+    :param bool missing_to_ref: If True (default False), sets missing alleles 
+        to "0"; otherwise skips sites with missing data
+    :param bool apply_filter: If True, skips sites with "FILTER" column not
+        equal to "PASS" or "."
+    :param tuple interval: Optional interval for sites
+    :param int verbose: If > 0, prints progress messages every `verbose` lines
+
+    :returns tuple: Sites array, genotype array, list of sample IDs
+    """
+    sites = list() 
+    genotypes = list()
+    counter = 0
+
+    for line in fin:
+        if isinstance(line, bytes):
+            line = line.decode()
+        if line.startswith('#'):
+            if line.startswith('#CHROM'):
+                all_ids = line.split()[9:]
+                if sample_ids is None:
+                    sample_ids = all_ids 
+                    sample_idx = list(range(len(all_ids)))
+                else:
+                    sample_idx = [all_ids.index(x) for x in sample_ids]
+            continue
+
+        split_line = line.split()
+        pos1 = int(split_line[1])
+        if verbose > 1:
+            if counter % verbose == 0 and counter > 1:
+                print(utils._current_time(),
+                    f'parsed POS {pos1} line {counter}')
+        counter += 1
+
+        # Filtering on the site
+        if interval is not None:
+            if pos1 < interval[0]:
+                continue
+            if pos1 >= interval[1]:
+                break
+        if mask is not None:
+            pos0 = pos1 - 1
+            if pos0 >= len(mask):
+                break
+            if mask[pos0] == True:
+                continue
+        if apply_filter:
+            filtr = split_line[6]
+            if filtr not in ('PASS', '.'):
+                continue
+        
+        ref = split_line[3]
+        alts = split_line[4].split(',')
+        alleles = [ref] + alts
+
+        # Filter non-SNVs, and multiallelic sites if `allow_multi` is False
+        if np.any([len(allele) > 1 for allele in alleles]):
+            continue
+        if not allow_multi:
+            if len(alts) > 1:
+                continue
+
+        samples = [split_line[9:][idx] for idx in sample_idx]
+        split_samples = [sample.split(':') for sample in samples]
+        genotype_strs = [sample[0] for sample in split_samples]
+        genotype_list = [re.split("/|\\|", gt) for gt in genotype_strs]
+        skip_line = False
+        for i, gt in enumerate(genotype_list):
+            for j, allele in enumerate(gt):
+                if allele == '.':
+                    if missing_to_ref:
+                        genotype_list[i][j] = '0'
+                    else:
+                        warnings.warn(f"Missing genotype at site {pos1}")
+                        skip_line = True
+        if skip_line:
+            continue
+        genotypes.append(np.array(genotype_list))
+        sites.append(pos1)
+
+    sites = np.array(sites, np.int64)
+    genotypes = np.array(genotypes, np.int64)
+    return sites, genotypes, sample_ids
+
+
