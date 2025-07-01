@@ -315,6 +315,7 @@ def optimize(
     u=None,
     method="fmin",
     max_iter=1000,
+    max_calls=None,
     log=False,
     verbose=1,
     overwrite=False,
@@ -351,6 +352,8 @@ def optimize(
         the initial guess for this parameter (defaults to 1e-8).
     :param str method: Optimization algorithm to use (default "fmin").
     :param int max_iter: Maximum number of optimization iterations.
+    :param int max_calls: Maximum number of function calls (may not work for
+        all optimization methods. default None)
     :param bool log: If True, optimize over the log of params (default False)
     :param int verbose: Print convergence messsages every `verbose` function 
         calls (default 1). If False, prints nothing.
@@ -485,6 +488,7 @@ def optimize(
             params_0,
             args=args,
             maxiter=max_iter,
+            maxfun=max_calls,
             full_output=True,
             disp=False
         )
@@ -496,6 +500,7 @@ def optimize(
             params_0,
             args=args,
             maxiter=max_iter,
+            maxfun=max_calls,
             full_output=True,
             disp=False
         )

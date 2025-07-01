@@ -226,10 +226,10 @@ def FIM_uncerts(
         model_args,
         means,
         varcovs,
-        delta=delta,
         just_hess=True,
-        bounds=bounds,
-        verbose=verbose
+        delta=delta,
+        verbose=verbose,
+        bounds=bounds
     )
 
     uncerts = np.sqrt(np.diag(np.linalg.inv(HH)))

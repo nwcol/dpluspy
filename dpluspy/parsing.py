@@ -14,7 +14,7 @@ import warnings
 from . import utils
 
 
-def parse_statistics(
+def parse_stats(
     vcf_file,
     ts_sample_ids=None,
     bed_file=None,
@@ -24,7 +24,7 @@ def parse_statistics(
     pos_col="Position(bp)",
     map_col="Map(cM)",
     map_sep=None,
-    interp_method='linear',
+    interp_method="linear",
     r=None,
     r_bins=None,
     bp_bins=None,
@@ -33,20 +33,18 @@ def parse_statistics(
     interval=None,
     intervals=None,
     interval_file=None,
-    chromosome="None",
+    chrom="None",
     phased=False,
     get_cross_pop=True,
     get_denoms=True,
     allow_multi=True,
     missing_to_ref=False,
     apply_filter=False,
-    scheme="overhang"
+    overhang="merge"
 ):
     """
-    Compute D+, H and their denominators from a VCF file or Tskit tree seq. 
-    Calls itself recursively if `intervals` or `interval_file` are given.
-
-    TODO finish
+    Compute D+, H and their denominators from a VCF file or Tskit tree sequence
+    in (and between) one or more genomic intervals.
     
     :param str vcf_file: Pathname of VCF file, or optionally a Tskit tree
         sequence instance with mutations. Provides sites and genotypes.
@@ -62,13 +60,21 @@ def parse_statistics(
         format. `rec_map_file` or `r` must be given.
     :param str pos_col: Rec. map "position" column (default "Position(bp)")
     :param str pos_col: Rec. map "map" column to use (default "Map(cM)")
-    :param str map_sep: TODO ADD
-
-
-
-    :param array r_bins: Recombination distance bin edges, given in units of r.
-
-    :param str chromosome: Optional chromosome ID, used to name intervals
+    :param str map_sep: 
+    :param str interp_method: Method for interpolating rec. map coordinates
+    :param float r: Uniform recombination rate for map interpolation, primarily
+        for use when parsing simulated data
+    :param array r_bins: Bin edges given in recombination fraction units.
+    :param array bp_bins: Bin edges in physical units (base pairs).
+    :param str mut_map_file: Pathname of a BEDGRAPH or site-resolution .npy 
+        file containing estimated mutation rates. If provided, `mut_facs` will
+        be computed and returned with other statistics for use in weighting.
+    :param str mut_col:
+    :param array interval: Single genomic interval to parse
+    :param list intervals: List of genomic intervals to parse
+    :param str interval_file: Pathname of whitespace-separated file holding
+        one interval on each line
+    :param str chrom: Optional chromosome ID, used to name intervals
     :param bool phased: If True, treat all VCF data as phased and use the 
         haplotype estimators for D+ (default False)
     :param bool get_cross_pop: If True (default), compute cross-population 
@@ -78,8 +84,8 @@ def parse_statistics(
     :param bool missing_to_ref: If True (default False), convert missing allele
         data to the reference; otherwise sites with missing data are skipped
     :param bool apply_filter: If True, exclude VCF sites with "FAIL" in "FILTER"
-    :param str scheme: Method to use for recording D+ statistic between genomic
-        intervals. See `compute_statistics` for more information.
+    :param str overhang: Method to use for computing/recording D+ statistic 
+        between genomic intervals. See `compute_stats` for more information.
 
     :returns dict: A dictionary holding raw windowed sums of D+ and H statistics
     """
@@ -94,7 +100,7 @@ def parse_statistics(
             positions = utils._read_bed_file_positions(bed_file) + 1
             seq_length = positions[-1]
         else:
-            seq_length = intervals[-1][-1] + 1
+            seq_length = intervals[-1][-1]
             positions = np.arange(1, seq_length)
 
         if mut_map_file is not None:
@@ -117,14 +123,18 @@ def parse_statistics(
                 rec_map_file, 
                 pos_col=pos_col,
                 map_col=map_col,
-                interp_method=interp_method
+                interp_method=interp_method,
+                map_sep=map_sep
             )
         elif r is not None:
             map_fxn = _get_uniform_recombination_map(r, seq_length)
         else:
             raise ValueError("You must provide recombination map information")
+        # Save r bins for output
+        ret_bins = r_bins
     elif bp_bins is not None:
         map_fxn = lambda x: x
+        ret_bins = None
     else:
         raise ValueError("You must provide bins")
 
@@ -159,7 +169,7 @@ def parse_statistics(
     pop_genotypes = _build_pop_genotypes(
         genotypes, sample_ids, pop_mapping=pop_mapping)
     
-    ret = compute_statistics(    
+    stats = compute_stats(    
         sites,
         pop_genotypes,
         map_fxn,
@@ -167,15 +177,16 @@ def parse_statistics(
         intervals,
         positions=positions,
         mut_map=mut_map,
-        chromosome=chromosome,
+        chrom=chrom,
         get_cross_pop=get_cross_pop,
         phased=phased,
-        scheme=scheme
+        overhang=overhang,
+        ret_bins=ret_bins
     )
-    return ret
+    return stats
 
 
-def compute_statistics(
+def compute_stats(
     sites,
     pop_genotypes,
     map_fxn,
@@ -183,15 +194,15 @@ def compute_statistics(
     intervals,
     positions=None,
     mut_map=None,
-    chromosome="None",
+    chrom="None",
     get_cross_pop=True,
     phased=False,
-    scheme="overhang"
+    overhang="merge",
+    verbose=True,
+    ret_bins=None
 ):
     """
     Compute D+, H statistics and their denominators from loaded data.
-
-    TODO finish this docstring and others
 
     :param array sites: Array of VCF site positions
     :param dict pop_genotypes: Dictionary mapping population names to genotype
@@ -200,93 +211,225 @@ def compute_statistics(
         physical positions
     :param array bins: Bin edges; may be in Morgans or physical units (bp)
     :param list intervals: Window intervals.
-    :param array positions: 
+    :param array positions: Array of callable positions
     :param array mut_map: Optional mutation map, 
-    :param str chromosome:
-    :param bool get_cross_pop:
-    :param bool phased:
-    
-    :returns dict:
+    :param str chrom: Optional chromosome ID used to name intervals 
+        (default "None")
+    :param bool get_cross_pop: If True (default), compute and return cross-
+        population D+ and H.
+    :param bool phased: If True (default False), treat data as phased and use
+        the haplotype estimators.
+    :param str overhang: Determines how locus pairs that span multiple genomic
+        intervals are handled. TODO write details
+        The third element of each interval provides an upper bound on the 
+        positions of right loci.
+    :param bool verbose: If True (default), print progress messages as intervals
+        are parsed.
+    :param array ret_bins: Bins to return as part of output data (for use when
+        specifying bins in units of r)
+
+    :returns dict: A dictionary mapping interval names to sums of statistics.
+        Each interval dict has keys "sums", "pop_ids", "bins", plus optionally
+        "denoms" and "mut_facs".
     """
+    if ret_bins is None:
+        ret_bins = bins 
+
     pop_ids = list(pop_genotypes.keys())
     denoms = None
     mut_facs = None 
 
     ret = dict()
 
-    if scheme == "simple":
-        for ii, interval in enumerate(intervals):
-            interval = interval[:2]
-            if positions is not None:
-                denoms = denoms_within(positions, map_fxn, bins, interval)
-            if mut_map is not None:
-                mut_facs = None
-            sums = stats_within(sites, pop_genotypes, map_fxn, bins, interval, 
-                get_cross_pop=get_cross_pop, phased=phased)
-            stats = dict()
-            stats["bins"] = bins
-            stats["pop_ids"] = pop_ids
-            stats["sums"] = sums
-            if denoms is not None:
-                stats["denoms"] = denoms
-            if mut_facs is not None:
-                stats["mut_facs"] = mut_facs
-
-
-            region_repr = tuple([int(_) for _ in interval])
-
-            key = (chromosome, ii)
-            ret[key] = stats
-
-    elif scheme == "overhang":
+    if overhang == "merge" or overhang == "merged":
         for ii, interval in enumerate(intervals):
             assert len(interval) == 3
             interval0 = interval[:2]
             interval1 = interval[1:]
-            intervals = (interval0, interval1)
+            _intervals = (interval0, interval1)
             if positions is not None:
                 denoms = denoms_within(positions, map_fxn, bins, interval0)
-                if interval1[0] < interval[1]:
-                    denoms += denoms_between(positions, map_fxn, bins, intervals)
+                if interval1[1] > interval1[0]:
+                    denoms += denoms_between(
+                        positions, map_fxn, bins, _intervals)
             if mut_map is not None:
-                mut_facs = None
-            sums = stats_within(sites, pop_genotypes, map_fxn, bins, interval0, 
-                get_cross_pop=get_cross_pop, phased=phased)
-            if interval1[0] < interval[1]:
-                sums += stats_between(sites, pop_genotypes, map_fxn, bins, 
-                    intervals, get_cross_pop=get_cross_pop, phased=phased)
+                mut_facs = mut_facs_within(
+                    positions, mut_map, map_fxn, bins, interval0)
+                if interval1[1] > interval1[0]:
+                    mut_facs += mut_facs_between(
+                        positions, mut_map, map_fxn, bins, _intervals)
+            sums = stats_within(
+                sites, 
+                pop_genotypes, 
+                map_fxn, 
+                bins, 
+                interval0, 
+                get_cross_pop=get_cross_pop, 
+                phased=phased
+            )
+            if interval1[1] > interval1[0]:
+                sums += stats_between(
+                    sites, 
+                    pop_genotypes, 
+                    map_fxn, 
+                    bins, 
+                    _intervals, 
+                    get_cross_pop=get_cross_pop, 
+                    phased=phased
+                )
             stats = dict()
-            stats["bins"] = bins
+            stats["bins"] = ret_bins
             stats["pop_ids"] = pop_ids
             stats["sums"] = sums
             if denoms is not None:
                 stats["denoms"] = denoms
             if mut_facs is not None:
                 stats["mut_facs"] = mut_facs
-            key = (chromosome, ii)
+            key = (chrom, ii)
             ret[key] = stats
-            
-    elif scheme == "complex":
-        raise ValueError("Not yet implemented")
+
+            if verbose:
+                print(utils._current_time(), 
+                    f"Computed stats in chrom {chrom} interval {ii}")
+        
+    elif overhang == "fancy":
+        for ii, left_interval in enumerate(intervals):
+            # Parse within interval ii
+            assert len(left_interval) == 3
+            interval0 = left_interval[:2]
+            if positions is not None:
+                denoms = denoms_within(positions, map_fxn, bins, interval0)
+            if mut_map is not None:
+                mut_facs = mut_facs_within(
+                    positions, mut_map, map_fxn, bins, interval0)
+            sums = stats_within(
+                sites, 
+                pop_genotypes, 
+                map_fxn, 
+                bins, 
+                interval0, 
+                get_cross_pop=get_cross_pop, 
+                phased=phased
+            )
+            stats = dict()
+            stats["bins"] = ret_bins
+            stats["pop_ids"] = pop_ids
+            stats["sums"] = sums
+            if denoms is not None:
+                stats["denoms"] = denoms
+            if mut_facs is not None:
+                stats["mut_facs"] = mut_facs
+            key = (chrom, (ii, ii))
+            ret[key] = stats
+
+            if verbose:
+                print(utils._current_time(), 
+                    f"Computed stats in chrom {chrom} interval {ii}")
+
+            # Parse between interval ii and accessible intervals to its right
+            for jj in range(ii + 1, len(intervals)):
+                right_interval = intervals[jj]
+                if left_interval[2] < right_interval[1]:
+                    continue
+                _intervals = (left_interval[:2], right_interval[:2])
+                if positions is not None:
+                    denoms = denoms_between(
+                        positions, map_fxn, bins, _intervals)
+                if mut_map is not None:
+                    mut_facs = mut_facs_between(
+                        positions, mut_map, map_fxn, bins, _intervals)
+                sums = stats_between(
+                    sites, 
+                    pop_genotypes, 
+                    map_fxn, 
+                    bins, 
+                    _intervals, 
+                    get_cross_pop=get_cross_pop, 
+                    phased=phased
+                )
+                stats = dict()
+                stats["bins"] = ret_bins
+                stats["pop_ids"] = pop_ids
+                stats["sums"] = sums
+                if denoms is not None:
+                    stats["denoms"] = denoms
+                if mut_facs is not None:
+                    stats["mut_facs"] = mut_facs
+                key = (chrom, (ii, jj))
+                ret[key] = stats
+
+                if verbose:
+                    print(utils._current_time(), "Computed stats between "
+                        f"chrom {chrom} intervals ({ii}, {jj})")
+
+    else:
+        for ii, interval in enumerate(intervals):
+            interval0 = interval[:2]
+            if positions is not None:
+                denoms = denoms_within(positions, map_fxn, bins, interval0)
+            if mut_map is not None:
+                mut_facs = mut_facs_within(
+                    positions, mut_map, map_fxn, bins, interval0)
+            sums = stats_within(
+                sites, 
+                pop_genotypes,
+                map_fxn, 
+                bins, 
+                interval0, 
+                get_cross_pop=get_cross_pop, 
+                phased=phased
+            )
+            stats = dict()
+            stats["bins"] = ret_bins
+            stats["pop_ids"] = pop_ids
+            stats["sums"] = sums
+            if denoms is not None:
+                stats["denoms"] = denoms
+            if mut_facs is not None:
+                stats["mut_facs"] = mut_facs
+            key = (chrom, ii)
+            ret[key] = stats
+
+            if verbose:
+                print(utils._current_time(), 
+                    f"Computed stats in chrom {chrom} interval {ii}")
     
     return ret
 
 
 def denoms_within(positions, map_fxn, bins, interval):
     """
-    
+    Subset positions to an interval and use `map_fxn` to compute the binned
+    D+ denominator with them.
+
+    :param array positions: Array of callable positions
+    :param function map_fxn: Function for computing map coordinates from
+        `positions`
+    :param array bins: Array of bin edges
+    :param array interval: Start and end positions of the interval of concern.
+
+    :returns array: Binned locus pair counts
     """
     start, end = interval
     where = np.where((positions >= start) & (positions < end))[0]
     pos_map = map_fxn(positions[where])
     denoms = _count_locus_pairs(pos_map, bins)
-    denoms = np.append(denoms, len(positions))
+    denoms = np.append(denoms, len(where))
     return denoms
 
 
 def denoms_between(positions, map_fxn, bins, intervals):
     """
-    
+    Subset to two intervals and compute binned denominators between them.
+
+    :param array positions: Array of callable positions
+    :param function map_fxn: Function for computing map coordinates from
+        `positions`
+    :param array bins: Array of bin edges
+    :param tuple intervals: Nonoverlapping intervals (arrays, length 2) defining 
+        lower and upper bounds on left and right loci
+
+    :returns array: Binned locus pair counts
     """
     (lstart, lend), (rstart, rend) = intervals
     where_left = np.where((positions >= lstart) & (positions < lend))[0]
@@ -300,21 +443,37 @@ def denoms_between(positions, map_fxn, bins, intervals):
 
 def mut_facs_within(positions, mut_map, map_fxn, bins, interval):
     """
-    
+    Subset mutation data to an interval and compute mutation factors (sums of
+    mutation-rate products across locus pairs) within it.
+
+    :param array positions: Array of callable positions
+    :param array mut_map: Estimated mutation rates, corresponding to `positions`
+    :param function map_fxn: Function for computing recombination map 
+        coordinates from `positions`
+    :param array bins: Array of distance bin edges
+    :param array interval: Upper and lower bounds on locus positions
+
+    :returns array: Mutation factors
     """
     start, end = interval
     where = np.where((positions >= start) & (positions < end))[0]
     sub_mut_map = mut_map[where]
     pos_map = map_fxn(positions[where])
     mut_facs = _count_locus_pairs(pos_map, bins, weights=sub_mut_map)
-    sum_mut = np.sum(mut_map)
+    sum_mut = np.sum(sub_mut_map)
     mut_facs = np.append(mut_facs, sum_mut)
     return mut_facs
 
 
 def mut_facs_between(positions, mut_map, map_fxn, bins, intervals):
     """
-    
+    Subset mutation data to two intervals and compute mutation factors between
+    them.
+
+    :param tuple intervals: Nonoverlapping intervals (arrays, length 2) defining 
+        lower and upper bounds on left and right loci
+
+    :returns array: Mutation factors
     """
     (lstart, lend), (rstart, rend) = intervals
     where_left = np.where((positions >= lstart) & (positions < lend))[0]
@@ -346,7 +505,20 @@ def stats_within(
     phased=True
 ):
     """
-    
+    Subset data to an interval and compute statistics within it.
+
+    :param array sites: Sites corresponding to genotypes
+    :param dict pop_genotypes: Dictionary mapping population names to arrays
+        of sample genotypes
+    :param function map_fxn: Function mapping physical positions to map coords
+    :param array bins: Distance (physical or recombination) bin edges
+    :param array interval: Start and end of interval to work within
+    :param bool get_cross_pop: If True (default), compute cross-population 
+        statistics and include them in output
+    :param bool phased: If True (default False), treat data as phased and use 
+        haplotype estimators
+
+    :returns array: Array of sums
     """
     start, end = interval
     where = np.where((sites >= start) & (sites < end))[0]
@@ -372,7 +544,13 @@ def stats_between(
     phased=True
 ):
     """
-    
+    Subset data to two intervals and compute statistics between them. See 
+    `stats_within` for parameter definitions.
+
+    :param tuple intervals: Nonoverlapping intervals (arrays, length 2) defining 
+        lower and upper bounds on left and right loci
+
+    :returns array: Array of sums
     """
     (lstart, lend), (rstart, rend) = intervals
     where_left = np.where((sites >= lstart) & (sites < lend))[0]
@@ -398,30 +576,34 @@ def stats_between(
 def _load_pop_file(pop_file):
     """
     Load a population file.
+
+    :param str pop_file: Pathname of population file.
+    
+    :returns dict: Dictionary mapping population IDs to lists of sample IDs
     """
     pop_mapping = defaultdict(list)
     with open(pop_file, 'r') as fin:
         for line in fin:
             sample, pop = line.split()
             pop_mapping[pop].append(sample)
-
     return pop_mapping
 
 
 def _build_pop_genotypes(genotypes, sample_ids, pop_mapping=None):
     """
-    From an array of genotypes encoding 
+    Break an array of genotypes corresponding to `sample_ids` up into 
+    population-specific arrays stored in a dictionary.
     
-    :param genotypes: Array of allelic states loaded by `read_vcf`. 
-        This should have the shape ``(s, n, 2)``, where ``s`` is the number of
-        sites and ``n`` is the number of diploid samples.
-    :param sample_ids: VCF sample IDs loaded by `read_vcf`.
-    :param pop_mapping: Dictionary, mapping population IDs to lists of sample
-        IDs (default None). If None, each sample is placed in a unique
+    :param array genotypes: Array of allelic states loaded by `read_vcf`. 
+        This should have the shape `(l, n, 2)`, where `l` is the number of
+        sites and `n` is the number of diploid samples.
+    :param list sample_ids: VCF sample IDs loaded by `read_vcf`.
+    :param dict pop_mapping: Dictionary mapping population IDs to lists of 
+        sample IDs (default None). If None, each sample is placed in a unique
         population.
     
-    returns: Dictionary that maps population IDs to population-specific
-        genotype arrays.
+    returns dict: Mapping of population IDs to population-specific genotype 
+        arrays
     """
     if pop_mapping is None:
         pop_mapping = {sample_id: [sample_id] for sample_id in sample_ids}
@@ -506,6 +688,21 @@ def _compute_pi(pop_genotypes, cross_pop=True):
                 sums[idx] = sum_ij 
             idx += 1
     return sums
+
+
+def _compute_pi_xy(genotypes_i, genotypes_j):
+    """
+    Compute the pairwise divergence between two diploids. This is the nucleotide 
+    diversity, conditional on sampling one allele copy from each diploid.
+
+    :param genotypes_i: Array of allelic states with shape (s, 2) for diploid i.
+    :param genotypes_j: Array of allelic states for diploid j with shape (s, 2)
+
+    :returns array: Array of site-wise divergences
+    """
+    pairwise_diff = genotypes_i[:, :, np.newaxis] != genotypes_j[:, np.newaxis]
+    pi = pairwise_diff.sum((2, 1)) / 4
+    return pi
 
 
 def _compute_stats_within(
@@ -883,25 +1080,6 @@ def _cross_genotype_D_plus_between(
     return D_plus
 
 
-def _compute_pi_xy(genotypes_i, genotypes_j):
-    """
-    Compute the pairwise divergence between two diploids. This is the nucleotide 
-    diversity, conditional on sampling one allele copy from each diploid.
-
-    :param genotypes_i: Array of allelic states with shape (s, 2) for diploid i.
-    :param genotypes_j: Array of allelic states for diploid j with shape (s, 2)
-
-    :returns: Array of pi_ij with shape (s,)
-    :rtype: np.ndarray 
-    """
-    pairwise_diff = genotypes_i[:, :, np.newaxis] != genotypes_j[:, np.newaxis]
-    pi = pairwise_diff.sum((2, 1)) / 4
-    return pi
-
-
-## Locus pair-counting functions
-
-
 def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
     """
     Compute the numbers of site pairs that fall within each of a series of 
@@ -1055,7 +1233,7 @@ def _load_recombination_map(
     map_col="Map(cM)",
     interp_method="linear", 
     unit='cM',
-    sep=None,
+    map_sep=None,
     inverse=False
 ):
     """
@@ -1084,18 +1262,16 @@ def _load_recombination_map(
     if map_col is None: 
         map_col = "Map(cM)"
     if ".txt" in filename:
+        # TODO ADD map_sep
         coords, map_coords = utils._read_hapmap_map(
-            filename, map_col=map_col, pos_col=pos_col
-        )
+            filename, map_col=map_col, pos_col=pos_col)
     elif ".bed" or ".bedgraph" in filename:
         coords, map_coords = utils._read_bedgraph_map(
-            filename, map_col=map_col, sep=sep
-        )
+            filename, map_col=map_col, sep=map_sep)
     else:
         try:
             coords, map_coords = utils._read_hapmap_map(
-                filename, map_col=map_col, pos_col=pos_col
-            )
+                filename, map_col=map_col, pos_col=pos_col)
         except:
             raise ValueError("Unrecognized recombination map file format")
     if unit not in ('cM', 'M'):
@@ -1115,8 +1291,7 @@ def _load_recombination_map(
         ys, 
         kind=interp_method,
         bounds_error=False,
-        fill_value=(ys[0], ys[-1])
-    )
+        fill_value=(ys[0], ys[-1]))
     return map_fxn
 
 
@@ -1191,7 +1366,7 @@ def get_vcf_genotypes(
         opener = open
 
     with opener(vcf_file, 'rb') as fin:
-                sites, genotypes, sample_ids = _read_vcf(
+        sites, genotypes, sample_ids = _read_vcf(
             fin,
             mask=mask,
             sample_ids=sample_ids,
@@ -1359,3 +1534,4 @@ def _read_vcf(
     sites = np.array(sites, np.int64)
     genotypes = np.array(genotypes, np.int64)
     return sites, genotypes, sample_ids
+

@@ -172,30 +172,74 @@ def bootstrap_stats(regions, num_reps=None, weighted=False):
     return means, varcovs
 
 
-def get_bootstrap_reps(regions, num_reps=None, weighted=False):
+def get_bootstrap_reps(data, num_reps=None, weighted=False):
     """
     Perform a bootstrap and return a list of replicate means.
 
-    :param dict regions: Dictionary of sums corresponding to genomic regions.
+    :param dict data: Dictionary of sums corresponding to genomic regions.
     :param int num_reps: Optional number of bootstrap replicates to assemble
         (defalts to `len(regions)`).
     :param bool weighted: If True (default False), compute mutation-rate 
         weighted statistics. Assumes "mut_facs" exists in each region.
+
+    :returns list: Bootstrap replicate means
     """
     if num_reps is None:
-        num_reps = len(regions)
-    labels = list(regions.keys())
-    sample_size = len(regions)
-    bootstrap_means = []
+        num_reps = len(data)
+    labels = list(data.keys())
+    sample_size = len(data)
+    replicates = []
     for _ in range(num_reps):
         samples = random.choices(labels, k=sample_size)
-        sampled_regions = [regions[sample] for sample in samples]
+        sampled_data = [data[sample] for sample in samples]
         if weighted:
-            rep_means = _weighted_means_across_replicates(sampled_regions)
+            replicate = _weighted_means_across_replicates(sampled_data)
         else:
-            rep_means = _means_across_replicates(sampled_regions)
-        bootstrap_means.append(rep_means)
-    return bootstrap_means
+            replicate = _means_across_replicates(sampled_data)
+        replicates.append(replicate)
+    return replicates
+
+
+def get_fancy_bootstrap_reps(data, num_reps=None, weighted=False):
+    """
+    It is expected that `data` has keys of the form ("chr0", (i, j)), where `i`
+    and `j` index intervals.
+    """
+    # Build a list of unique intervals
+    intervals = list()
+    for key in data:
+        chrom = key[0]
+        ii, jj = key[1]
+        if ii == jj:
+            intervals.append((chrom, ii))
+
+    sample_size = len(intervals)
+    if num_reps is None:
+        num_reps = len(intervals)
+
+    replicates = list()
+
+    for _ in range(num_reps):
+        sampled_intervals = random.choices(intervals, k=sample_size)
+        # Find "within" and "between" stats corresponding to samples
+        samples = list()
+        for interval0 in sampled_intervals:
+            chrom0, ii = interval0 
+            key = (chrom0, (ii, ii))
+            samples.append(key)
+            for interval1 in sampled_intervals:
+                chrom1, jj = interval1
+                if chrom0 == chrom1 and ii != jj:
+                    key = (chrom0, (ii, jj))
+                    if key in data:
+                        samples.append(key)
+        sampled_data = [data[sample] for sample in samples]
+        if weighted:
+            replicate = _weighted_means_across_replicates(sampled_data)
+        else:
+            replicate = _means_across_replicates(sampled_data)
+        replicates.append(replicate)
+    return replicates
 
 
 def compute_varcovs(bootstrap_means):
