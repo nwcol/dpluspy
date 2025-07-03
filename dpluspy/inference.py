@@ -128,7 +128,8 @@ def compute_bin_stats(
     u=None,
     bins=None,
     approx="simpsons",
-    phased=False
+    phased=False,
+    steps=None
 ):
     """
     From a Demes graph, compute expected ``D+`` in bins using `moments.LD` and 
@@ -146,14 +147,12 @@ def compute_bin_stats(
         to "simpsons" if None.
     :param phased: If True, compute phased expectations for cross-population
         statistics (default False).
+    :param int steps: 
 
-    :returns: A DPlusStats instance holding computed statistics.
+    :returns: A DPlusStats instance holding expected statistics.
     """
     if approx is None:
         approx = "simpsons"
-
-    if approx not in ("midpoint", "trapezoid", "simpsons"):
-        raise ValueError("Unrecognized approximation method")
     
     if bins is None:
         raise ValueError("You must provide bins")
@@ -174,20 +173,6 @@ def compute_bin_stats(
             u=u,
             phased=phased
         )
-
-    elif approx == "trapezoid":
-        raise ValueError("This method is forbidden as it is too inaccurate")
-        y_edges = DPlusStats.from_moments(
-            graph, 
-            sampled_demes, 
-            sample_times=sample_times, 
-            rs=bins, 
-            u=u,
-            phased=phased
-        )
-        y = [(y0 + y1) / 2 for y0, y1 in zip(y_edges[:-2], y_edges[1:-1])]
-        y.append(y_edges[-1])
-        model = DPlusStats(y, pop_ids=sampled_demes)
 
     elif approx == "simpsons":
         y_edges = DPlusStats.from_moments(
@@ -213,6 +198,34 @@ def compute_bin_stats(
         ]
         y.append(y_edges[-1])
         model = DPlusStats(y, pop_ids=sampled_demes)
+
+    # `steps` of 1 is equivalent to "simpsons"
+    elif approx == "composite_simpsons":
+        if steps is None:
+            raise ValueError("You must provide `steps`")
+        _bins = [(bins[i], bins[i + 1]) for i in range(len(bins) - 1)]
+        n = 2 * steps
+        y = list()
+        for aa, bb in _bins:
+            points = np.linspace(aa, bb, n + 1)
+            y_work = DPlusStats.from_moments(
+                graph, 
+                sampled_demes, 
+                sample_times=sample_times,
+                rs=points, 
+                u=u,
+                phased=phased
+            )
+            y_bin = 1 / (3 * n) * (
+                y_work[0] + 4 * np.sum(y_work[1:-2:2], axis=0) 
+                + 2 * np.sum(y_work[2:-3:2], axis=0) + y_work[-2])
+            y.append(y_bin)
+        y.append(y_work[-1])
+        model = DPlusStats(y, pop_ids=sampled_demes)
+
+    elif approx == "composite_trapezoid":
+        raise ValueError("not implemented")
+
 
     else:
         raise ValueError("Unrecognized approximation method")
