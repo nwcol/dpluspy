@@ -743,3 +743,33 @@ def _load_params(graph_file, param_file):
     pnames, params, *_  = moments.Demes.Inference._set_up_params_and_bounds(
         options, builder)
     return pnames, params
+
+
+def transpose_params(
+    graph_file0, 
+    param_file0, 
+    graph_file1, 
+    output_file,
+    param_file1=None,
+    mapping=None
+):
+    """
+    Load the parameter values specified by `param_file` and `graph0`, enter
+    the defined parameter values into `graph1`, and save it at `output_file`.
+
+    """
+    _, params0 = _load_params(graph_file0, param_file0)
+    builder = moments.Demes.Inference._get_demes_dict(graph_file1)
+    options0 = moments.Demes.Inference._get_params_dict(param_file0)
+    if mapping is not None:
+        options = moments.Demes.Inference._get_params_dict(param_file1)
+        raise ValueError("Not implemented")
+    else:
+        params = params0
+        options = options0
+    builder = moments.Demes.Inference._update_builder(builder, options, params)
+    graph = demes.Graph.fromdict(builder)
+    demes.dump(graph, output_file)
+    return
+
+

@@ -40,7 +40,8 @@ def parse_stats(
     allow_multi=True,
     missing_to_ref=False,
     apply_filter=False,
-    overhang="merge"
+    overhang="merge",
+    verbose=True
 ):
     """
     Compute D+, H and their denominators from a VCF file or Tskit tree sequence
@@ -86,6 +87,7 @@ def parse_stats(
     :param bool apply_filter: If True, exclude VCF sites with "FAIL" in "FILTER"
     :param str overhang: Method to use for computing/recording D+ statistic 
         between genomic intervals. See `compute_stats` for more information.
+    :param bool verbose: If True (default), print reports.
 
     :returns dict: A dictionary holding raw windowed sums of D+ and H statistics
     """
@@ -181,7 +183,8 @@ def parse_stats(
         get_cross_pop=get_cross_pop,
         phased=phased,
         overhang=overhang,
-        ret_bins=ret_bins
+        ret_bins=ret_bins,
+        verbose=verbose
     )
     return stats
 

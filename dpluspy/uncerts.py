@@ -251,7 +251,7 @@ def GIM_uncerts(
     fitted_u=None,
     bootstrap_reps=None,
     delta=0.01,
-    approx_method=None,
+    approx_method="simpsons",
     model_func=_model_func,
     verbose=True,
     bounds=None,
@@ -318,7 +318,8 @@ def GIM_uncerts(
         bounds=bounds
     )
 
-    uncerts = np.sqrt(np.diag(np.linalg.inv(GIM)))
+    GIM_inv = np.linalg.inv(GIM)
+    uncerts = np.sqrt(np.diag(GIM_inv))
     if return_GIM: 
         ret = (param_names, params, uncerts, GIM, HH)
     else:
@@ -337,7 +338,8 @@ def LRT_adjust(
     steps=None,
     verbose=True,
     bounds=None,
-    model_func=_model_func
+    model_func=_model_func,
+    return_GIM=False
 ):
     """
     Compute an adjustment for the likelihood ratio test with composite 
@@ -364,6 +366,8 @@ def LRT_adjust(
         If not given, bounds are generated automatically using bounds and 
         constraints from the options file.
     :param function model_func: Function to evaluate.
+    :param bool return_GIM: If True (default False), return the GIM, sensitivity
+        and variability matrices
 
     :returns float: Adjustment factor for the LRT.
     """
@@ -387,9 +391,12 @@ def LRT_adjust(
         verbose=verbose,
         bounds=bounds
     )
-
     factor = len(nested_idx) / np.trace(np.matmul(JJ, np.linalg.inv(HH))) 
-    return factor
+    if return_GIM:
+        ret = (factor, GIM, HH, JJ)
+    else: 
+        ret = factor
+    return ret
 
 
 _model_cache = dict()
