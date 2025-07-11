@@ -1323,8 +1323,9 @@ def _load_mutation_map(filename, positions, map_col="mut_map"):
             raise ValueError('Positions exceed map length')
         idxs = np.searchsorted(coords, positions)
         mut_map = tot_map[idxs]
+        assert not np.any(np.isnan(mut_map))
     elif filename.endswith('.npy'):
-        tot_map = np.load(filename)
+        tot_map = np.load(filename).astype(np.float64)
         if np.any(positions > len(tot_map)):
             raise ValueError('Positions exceed map length')
         mut_map = tot_map[positions - 1]

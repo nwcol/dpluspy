@@ -1,5 +1,5 @@
 """
-Houses a class for holding expected D+ and H statistics.
+Class for holding expected D+ and H statistics.
 """
 
 import demes

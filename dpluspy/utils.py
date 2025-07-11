@@ -1,17 +1,10 @@
 """
-Houses utilities for reading/writing files and doing arithmetic.
+Functions for reading/writing files and doing arithmetic
 """
 
-import copy
 from datetime import datetime
 import gzip
 import numpy as np
-import re
-import pickle
-import warnings
-
-
-## Generating the names of statistics
 
 
 def _generate_pairs(pop_ids):
@@ -237,9 +230,6 @@ def _collapse_regions(regions):
     Collapse any overlapping intervals in an array together.
     """
     return _mask_to_regions(_regions_to_mask(regions))
-
-
-# BEDGRAPH files and recombination maps
 
 
 def _read_bedgraph_file(filename, override_cols=None, sep=None):

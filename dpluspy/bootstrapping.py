@@ -1,5 +1,5 @@
 """
-Houses functions for subsetting statistics, computing means, and bootstrapping.
+Functions for subsetting statistics, computing means, and bootstrapping.
 """
 
 import random

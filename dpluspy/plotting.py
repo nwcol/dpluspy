@@ -1,5 +1,5 @@
 """
-Houses functions for plotting data, models and probability distributions.
+Functions for plotting data, models and probability distributions.
 """
 
 from bokeh import palettes
@@ -7,9 +7,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-from scipy import stats
 
-from . import parsing, inference, utils
+from . import utils
 
 
 mpl.rcParams["xtick.labelsize"] = 10

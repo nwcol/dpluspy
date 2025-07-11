@@ -1,5 +1,5 @@
 """
-Functions for estimating confidence intervals and statistical testing.
+Functions for estimating confidence intervals and performing statistical tests
 """
 
 import demes

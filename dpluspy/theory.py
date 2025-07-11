@@ -1,12 +1,9 @@
 """
-Houses fragments that deal with some theoretical aspects of ``D+``.
+Fragments that deal with some theoretical aspects of D+
 """
 
 import numpy as np
 from sympy import *
-
-
-## Bases
 
 
 def HR_transition_matrix(u, r, N):

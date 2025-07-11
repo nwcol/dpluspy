@@ -1,5 +1,5 @@
 """
-Houses functions for fitting models to empirical statistics.
+Functions for fitting parameters and computing model likelihoods with D+
 """
 
 from datetime import datetime
@@ -771,5 +771,3 @@ def transpose_params(
     graph = demes.Graph.fromdict(builder)
     demes.dump(graph, output_file)
     return
-
-
