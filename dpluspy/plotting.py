@@ -45,6 +45,7 @@ def plot_d_plus_curves(
     hline=None,
     out=None,
     show=True,
+    colors=None
 ):
     """
     Plot an arbitrary number of datasets and model expectations on shared axes.
@@ -181,13 +182,16 @@ def plot_d_plus_curves(
     for ax in axs[num_stats:]:
         ax.remove()
 
-    # special cases for color assignment
-    if len(models) == 1 and len(means) == 1:
-        colors = [palettes.Category10_10[0]] * 2
-    elif len(labels) <= 10:
-        colors = palettes.Category10_10
+    if colors is None:
+        # special cases for color assignment
+        if len(models) == 1 and len(means) == 1:
+            colors = [palettes.Category10_10[0]] * 2
+        elif len(labels) <= 10:
+            colors = palettes.Category10_10
+        else:
+            colors = palettes.TolRainbow[len(labels)]
     else:
-        colors = palettes.TolRainbow[len(labels)]
+        assert len(colors) == len(models) + len(means)
 
     for i, stat in enumerate(stats_to_plot):
         ax = axs[i]

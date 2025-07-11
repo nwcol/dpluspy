@@ -216,10 +216,7 @@ def FIM_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
-
-    if bounds is None:
-        bounds = set_up_bounds(param_file, params, param_names)
-
+    
     HH = get_godambe(
         params,
         model_func,
@@ -302,9 +299,6 @@ def GIM_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
-    
-    if bounds is None:
-        bounds = set_up_bounds(param_file, params, param_names)
 
     GIM, HH, JJ, score = get_godambe(
         params,
@@ -363,8 +357,6 @@ def LRT_adjust(
     :param bool verbose: If True, print progress messages as the Hessian matrix
         is estimated.
     :param tuple bounds: Optional tuple of lower and upper bounds on parameters.
-        If not given, bounds are generated automatically using bounds and 
-        constraints from the options file.
     :param function model_func: Function to evaluate.
     :param bool return_GIM: If True (default False), return the GIM, sensitivity
         and variability matrices
@@ -391,7 +383,7 @@ def LRT_adjust(
         verbose=verbose,
         bounds=bounds
     )
-    factor = len(nested_idx) / np.trace(np.matmul(JJ, np.linalg.inv(HH))) 
+    factor = len(nested_idx) / np.trace(np.matmul(JJ, np.linalg.inv(HH)))
     if return_GIM:
         ret = (factor, GIM, HH, JJ)
     else: 

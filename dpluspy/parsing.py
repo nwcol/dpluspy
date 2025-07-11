@@ -1,5 +1,5 @@
 """
-Houses functions for estimating D+ and one-locus diversity from sequence data.
+Functions for estimating D+ and H from sequence data.
 """
 
 from collections import defaultdict
@@ -45,7 +45,7 @@ def parse_stats(
 ):
     """
     Compute D+, H and their denominators from a VCF file or Tskit tree sequence
-    in (and between) one or more genomic intervals.
+    in one or more genomic intervals.
     
     :param str vcf_file: Pathname of VCF file, or optionally a Tskit tree
         sequence instance with mutations. Provides sites and genotypes.
@@ -95,6 +95,9 @@ def parse_stats(
         intervals = [interval]
     if interval_file is not None:
         intervals = np.loadtxt(interval_file)
+    if np.array(intervals).ndim == 1:
+        intervals = np.array(intervals)[None, :]
+    # Convert intervals into a list of 1d arrays
     intervals = [np.asarray(x).flatten() for x in intervals]
 
     if get_denoms:
@@ -168,6 +171,7 @@ def parse_stats(
             missing_to_ref=missing_to_ref,
             apply_filter=apply_filter
         )
+    # Construct a dict mapping population IDs to population genotype arrays
     pop_genotypes = _build_pop_genotypes(
         genotypes, sample_ids, pop_mapping=pop_mapping)
     
