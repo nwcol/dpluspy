@@ -271,8 +271,7 @@ def plot_d_plus_curves(
             ax.grid(alpha=0.3)
 
     if len(labels) > 1:
-            # why not use a rule like this to determine the number of legend columns
-            ncols = int(np.ceil(np.sqrt(len(labels))) + 1)
+            ncols = int(cols * ax_size)
             fig.legend(
                 framealpha=0, loc='lower center', ncols=ncols, 
                 bbox_to_anchor=(0.5, -0.1))
@@ -282,7 +281,10 @@ def plot_d_plus_curves(
         fig.suptitle("")
 
     if out:
-        plt.savefig(out, dpi=244, bbox_inches='tight', pad_inches=0.1)
+        if out.endswith(".pdf"):
+            plt.savefig(out, bbox_inches='tight', pad_inches=0.1)
+        else:
+            plt.savefig(out, dpi=244, bbox_inches='tight', pad_inches=0.1)
     if show:
         plt.show()
 

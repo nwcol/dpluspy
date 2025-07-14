@@ -40,7 +40,7 @@ def parse_stats(
     allow_multi=True,
     missing_to_ref=False,
     apply_filter=False,
-    overhang="merge",
+    overhang=True,
     verbose=True
 ):
     """
@@ -248,7 +248,7 @@ def compute_stats(
 
     ret = dict()
 
-    if overhang == "merge" or overhang == "merged":
+    if overhang:
         for ii, interval in enumerate(intervals):
             assert len(interval) == 3
             interval0 = interval[:2]
@@ -298,76 +298,6 @@ def compute_stats(
             if verbose:
                 print(utils._current_time(), 
                     f"Computed stats in chrom {chrom} interval {ii}")
-        
-    elif overhang == "fancy":
-        for ii, left_interval in enumerate(intervals):
-            # Parse within interval ii
-            assert len(left_interval) == 3
-            interval0 = left_interval[:2]
-            if positions is not None:
-                denoms = denoms_within(positions, map_fxn, bins, interval0)
-            if mut_map is not None:
-                mut_facs = mut_facs_within(
-                    positions, mut_map, map_fxn, bins, interval0)
-            sums = stats_within(
-                sites, 
-                pop_genotypes, 
-                map_fxn, 
-                bins, 
-                interval0, 
-                get_cross_pop=get_cross_pop, 
-                phased=phased
-            )
-            stats = dict()
-            stats["bins"] = ret_bins
-            stats["pop_ids"] = pop_ids
-            stats["sums"] = sums
-            if denoms is not None:
-                stats["denoms"] = denoms
-            if mut_facs is not None:
-                stats["mut_facs"] = mut_facs
-            key = (chrom, (ii, ii))
-            ret[key] = stats
-
-            if verbose:
-                print(utils._current_time(), 
-                    f"Computed stats in chrom {chrom} interval {ii}")
-
-            # Parse between interval ii and accessible intervals to its right
-            for jj in range(ii + 1, len(intervals)):
-                right_interval = intervals[jj]
-                if left_interval[2] < right_interval[1]:
-                    continue
-                _intervals = (left_interval[:2], right_interval[:2])
-                if positions is not None:
-                    denoms = denoms_between(
-                        positions, map_fxn, bins, _intervals)
-                if mut_map is not None:
-                    mut_facs = mut_facs_between(
-                        positions, mut_map, map_fxn, bins, _intervals)
-                sums = stats_between(
-                    sites, 
-                    pop_genotypes, 
-                    map_fxn, 
-                    bins, 
-                    _intervals, 
-                    get_cross_pop=get_cross_pop, 
-                    phased=phased
-                )
-                stats = dict()
-                stats["bins"] = ret_bins
-                stats["pop_ids"] = pop_ids
-                stats["sums"] = sums
-                if denoms is not None:
-                    stats["denoms"] = denoms
-                if mut_facs is not None:
-                    stats["mut_facs"] = mut_facs
-                key = (chrom, (ii, jj))
-                ret[key] = stats
-
-                if verbose:
-                    print(utils._current_time(), "Computed stats between "
-                        f"chrom {chrom} intervals ({ii}, {jj})")
 
     else:
         for ii, interval in enumerate(intervals):
