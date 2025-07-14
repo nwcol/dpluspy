@@ -98,7 +98,7 @@ def parse_stats(
     if np.array(intervals).ndim == 1:
         intervals = np.array(intervals)[None, :]
     # Convert intervals into a list of 1d arrays
-    intervals = [np.asarray(x).flatten() for x in intervals]
+    intervals = [np.asarray(x).flatten().astype(np.int64) for x in intervals]
 
     if get_denoms:
         if bed_file is not None: 
@@ -204,7 +204,7 @@ def compute_stats(
     chrom="None",
     get_cross_pop=True,
     phased=False,
-    overhang="merge",
+    overhang=True,
     verbose=True,
     ret_bins=None
 ):
@@ -296,8 +296,14 @@ def compute_stats(
             ret[key] = stats
 
             if verbose:
-                print(utils._current_time(), 
-                    f"Computed stats in chrom {chrom} interval {ii}")
+                if interval1[1] > interval1[0]:
+                    print(utils._current_time(), 
+                        f"Computed stats in chrom {chrom} interval {ii} "
+                        f"{interval[0]}:{interval[1]}:{interval[2]}")
+                else:
+                    print(utils._current_time(), 
+                        f"Computed stats in chrom {chrom} interval {ii} "
+                        f"{interval[0]}:{interval[1]}")
 
     else:
         for ii, interval in enumerate(intervals):
@@ -329,7 +335,8 @@ def compute_stats(
 
             if verbose:
                 print(utils._current_time(), 
-                    f"Computed stats in chrom {chrom} interval {ii}")
+                    f"Computed stats in chrom {chrom} interval {ii} "
+                    f"{interval0[0]}:{interval0[1]}")
     
     return ret
 
