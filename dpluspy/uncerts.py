@@ -466,9 +466,9 @@ def get_godambe(
         model_args, 
         varcovs, 
         bootreps,
-        delta=0.01,
-        steps=None,
-        bounds=None
+        delta=delta,
+        steps=steps,
+        bounds=bounds
     )
     J_inv = np.linalg.inv(JJ)
     GIM = HH @ J_inv @ HH
@@ -786,23 +786,33 @@ def get_score(
                 f"Parameter {ii} bounds prevent finite differences evaluation")
         
     indicator = lambda n, i: np.array([0 if j != i else 1 for j in range(n)])
+    lower, upper = bounds
     args = (means, varcovs, model_args)
     score = np.zeros((len(p0), 1))
+
     for ii in range(len(p0)):
         Ii = indicator(len(p0), ii)
-        # One-sided (forward) finite differences
-        if p0[ii] - steps[ii] <= bounds[0][ii]:
+
+        # Determine position of p_i with respect to bounds
+        if p0[ii] == 0:
+            form = "forward"
+        elif p0[ii] - steps[ii] <= lower[ii]:
+            form = "forward"
+        elif p0[ii] + steps[ii] >= upper[ii]:
+            form = "backward"
+        else:
+            form = "central"
+
+        if form == "forward":
             f_0 = func(p0, *args)
             f_f = func(p0 + steps * Ii, *args)
             score[ii, 0] = (f_f - f_0) / steps[ii]
 
-        # One-sided (backward) finite differences
-        elif p0[ii] + steps[ii] >= bounds[1][ii]:
+        elif form == "backward":
             f_0 = func(p0, *args)
             f_b = func(p0 - steps * Ii, *args)
             score[ii, 0] = (f_0 - f_b) / steps[ii]
 
-        # Central
         else:
             f_b = func(p0 - steps * Ii, *args)
             f_f = func(p0 + steps * Ii, *args)
