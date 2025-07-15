@@ -10,19 +10,19 @@ from dpluspy import utils
 
 class TestMaskManips(unittest.TestCase):
 
-    def test_(self):
+    def write_me(self):
         pass
 
 
 class TestBedFiles(unittest.TestCase):
 
-    def test_(self):
+    def write_me(self):
         pass
 
 
 class TestBedGraphFiles(unittest.TestCase):
 
-    def test_(self):
+    def write_me(self):
         pass
 
 

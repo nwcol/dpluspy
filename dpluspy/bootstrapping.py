@@ -149,7 +149,7 @@ def bootstrap_stats(
     regions, 
     num_reps=None, 
     weighted=False,
-    aggregate=None
+    aggregate=False
 ):
     """
     Perform a bootstrap to obtain covariance matrices for D+ and H statistics,
@@ -177,7 +177,7 @@ def bootstrap_stats(
     return means, varcovs
 
 
-def get_bootstrap_reps(data, num_reps=None, weighted=False, aggregate=True):
+def get_bootstrap_reps(data, num_reps=None, weighted=False, aggregate=False):
     """
     Perform a bootstrap and return a list of replicate means.
 

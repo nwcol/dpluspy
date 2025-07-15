@@ -21,7 +21,7 @@ mpl.rcParams["font.family"] = "sans-serif"
 mpl.rcParams["savefig.bbox"] = "tight"
 
 
-def plot_d_plus_curves(
+def plot_D_plus_curves(
     models=[],
     means=[],
     varcovs=[],

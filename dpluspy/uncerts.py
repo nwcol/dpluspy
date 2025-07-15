@@ -246,7 +246,7 @@ def GIM_uncerts(
     bins=None,
     u=None,
     fitted_u=None,
-    bootstrap_reps=None,
+    bootreps=None,
     delta=0.01,
     approx_method="simpsons",
     model_func=_model_func,
@@ -272,13 +272,13 @@ def GIM_uncerts(
         `fitted_u`.
     :param float fitted_u: Fitted mutation rate parameter. This value is
         appended to fitted parameters and uncerts are computed for it as well.
-    :param list bootstrap_reps: List of bootstrap replicate means. 
+    :param list bootreps: List of bootstrap replicate means. 
     :param float delta: Optional step size for evaluating derivatives with 
         finite differences (default 0.01).
     :param str method: Method to use for computing standard deviations. Can be 
         either "fisher"- which does not require bootstrap replicates but 
         understimates variance because genetic linkage violates its assumptions-
-        or "godambe", which requires `bootstrap_reps`.
+        or "godambe", which requires `bootreps`.
     :param str approx_method: Optional method to use for approximating E[D+] 
         within bins (defaults to "simpsons"). The other option is "midpoint",
         which is about two times faster but slightly less precise.
@@ -300,13 +300,13 @@ def GIM_uncerts(
         approx_method=approx_method
     )
 
-    GIM, HH, JJ, score = get_godambe(
+    GIM, HH, JJ = get_godambe(
         params,
         model_func,
         model_args,
         means,
         varcovs,
-        bootstrap_reps=bootstrap_reps,
+        bootreps=bootreps,
         delta=delta,
         verbose=verbose,
         bounds=bounds
@@ -326,7 +326,7 @@ def LRT_adjust(
     model_args,
     means,
     varcovs,
-    bootstrap_reps,
+    bootreps,
     nested_idx, 
     delta=0.01,
     steps=None,
@@ -349,7 +349,7 @@ def LRT_adjust(
         using `_set_up_model_args`.
     :param list means: List of empirical D+ means.
     :param list varcovs: List of covariance matrices obtained with bootstrap.
-    :param list bootstrap_reps: List of bootstrap replicate means. All 
+    :param list bootreps: List of bootstrap replicate means. All 
         replicates in this list are used to compute the adjustment factor.
     :param np.ndarray nested_idx: Indices of nested parameters.
     :param float delta: Step size for finite-differences estimation of first
@@ -365,19 +365,19 @@ def LRT_adjust(
     """
     nested_idx = np.asarray(nested_idx)
 
-    def pass_func(dparams, args=None):
+    def pass_func(nested_params, args=None):
         params = np.array(p0, copy=True)
-        params[nested_idx] = dparams
+        params[nested_idx] = nested_params
         return model_func(params, args=model_args)
     
     p_nested = p0[nested_idx]
-    GIM, HH, JJ, score = get_godambe( 
+    GIM, HH, JJ = get_godambe( 
         p_nested,
         pass_func,
         model_args,
         means,
         varcovs,
-        bootstrap_reps=bootstrap_reps,
+        bootreps=bootreps,
         delta=delta,
         steps=steps,
         verbose=verbose,
@@ -400,7 +400,7 @@ def get_godambe(
     model_args,
     means,
     varcovs,
-    bootstrap_reps=None,
+    bootreps=None,
     delta=0.01,
     steps=None,
     just_hess=False,
@@ -417,11 +417,11 @@ def get_godambe(
     :param tuple model_args: Arguments for `model_func`. See `set_up_model_args`
     :param list means: Empirical means
     :param list varcovs: Covariance arrays obtained via bootstrap
-    :param list bootstrap_reps: List of means obtained via bootstrap. Not 
+    :param list bootreps: List of means obtained via bootstrap. Not 
         required if `just_hess` is True.
     :param float delta: Optional finite differences step size (default 0.01)
     :param bool just_hess: If True (default False), only estimate the 
-        Hessian matrix; this operation does not require `bootstrap_reps`.
+        Hessian matrix; this operation does not require `bootreps`.
     :param bool verbose: If True (default), print updates at the evaluation of 
         each element.
     :param tuple bounds: Optional tuple of upper and lower bounds on parameters; 
@@ -434,7 +434,7 @@ def get_godambe(
     :returns tuple: Godambe Information, sensitivity, and variability matrices
         and expected score.
     """
-    if bootstrap_reps is None and not just_hess:
+    if bootreps is None and not just_hess:
         raise ValueError("You must provide bootstrap replicates")
 
     def obj_func(params, means, varcovs, model_args):
@@ -460,28 +460,67 @@ def get_godambe(
     if just_hess:
         return HH
 
-    # Compute expected score and J across bootstrap realizations
-    score = np.zeros((len(p0), 1))
+    JJ = get_var(
+        p0, 
+        obj_func, 
+        model_args, 
+        varcovs, 
+        bootreps,
+        delta=0.01,
+        steps=None,
+        bounds=None
+    )
+    J_inv = np.linalg.inv(JJ)
+    GIM = HH @ J_inv @ HH
+    return GIM, HH, JJ
+
+
+def get_var(
+    p0, 
+    obj_func, 
+    model_args, 
+    varcovs, 
+    bootreps,
+    delta=0.01,
+    steps=None,
+    bounds=None
+):
+    """
+    Estimate the average variability matrix `J` (expected variance of the score
+    function at the MLE) across a list of bootstrap replicates.
+
+    :param array p0: Best-fit parameter values
+    :param function obj_func: Function for computing likelihoods given parameter
+        values and model arguments
+    :param tuple model_args: Arguments needed to compute model expectations;
+        created with `set_up_model_args`
+    :param list varcovs: List of covariance matrices of observed statistics for
+        each bin. Computed via bootstrap
+    :param list bootreps: List of bootstrap replicate means. `J` is computed 
+        across all reps provided.
+    :param float delta: Fractional parameter step size (default 0.01)
+    :param array steps: Vector of step sizes (default None, overrides `delta`
+        if given)
+    :param tuple bounds: Optional lower and upper bounds on `p0` (default None)
+
+    :returns array: Estimated variability matrix
+    """
     JJ = np.zeros((len(p0), len(p0)))
-    for rep_means in bootstrap_reps:
-        cU = get_grad(
+    for rep in bootreps:
+        cU = get_score(
             p0, 
             obj_func, 
             model_args,
-            rep_means,
+            rep,
             varcovs,
             delta=delta,
             steps=steps,
             bounds=bounds
         )
-        score += cU
-        _J = np.matmul(cU, cU.T)
-        JJ += _J
-    score = score / len(bootstrap_reps)
-    JJ = JJ / len(bootstrap_reps)
-    J_inv = np.linalg.inv(JJ)
-    GIM = HH @ J_inv @ HH
-    return GIM, HH, JJ, score
+        rep_J = cU @ cU.T
+        JJ += rep_J
+    JJ = JJ / len(bootreps)
+    return JJ
 
 
 def get_hess(
@@ -496,9 +535,9 @@ def get_hess(
     bounds=None
 ):
     """
-    Compute the approximate Hessian matrix of the log-likelihood function using 
-    finite differences. Uses empirical means and variances/coveriances obtained 
-    by bootstrapping. 
+    Compute the approximate Hessian (sensitivity) matrix of the log-likelihood 
+    function using finite differences. Uses empirical means and variances/
+    coveriances obtained by bootstrapping. 
 
     :param array p0: Array of maximum-likelihood parameter values
     :param function func: Function for computing log likelihood
@@ -520,7 +559,8 @@ def get_hess(
     # Check bounds; parameters are allowed to equal 0.
     if bounds is None:
         bounds = (np.zeros(len(p0)), np.full(len(p0), np.inf))
-    if np.any(p0 < bounds[0]) or np.any(p0 >= bounds[1]):
+    if (np.any((p0 <= bounds[0]) & (bounds[0] > 0)) 
+        or np.any(p0 < 0) or np.any(p0 >= bounds[1])):
         raise ValueError("All parameters must be within bounds")
     
     if steps is not None:
@@ -553,7 +593,7 @@ def get_hess(
     return HH
 
 
-def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
+def hessian_elem(func, p0, steps, bounds, ii, jj, args=(), return_form=False):
     """
     Evaluate element (ii, jj) of the Hessian matrix, the matrix of second
     partial derivatives over the log-likelihood function with respect to 
@@ -567,6 +607,9 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
     :param tuple bounds: Tuple of arrays of lower and upper parameter bounds.
     :params int ii, jj: Indices of the Hessian element to evaluate.
     :param tuple args: Auxiliary arguments for `func`.
+    :param bool return_form: If True (default False), return a string 
+        representing the form of finite difference that was evaluated. For
+        debugging/introspection.
 
     :returns float: Hessian element (ii, jj)
     """
@@ -576,17 +619,27 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
 
     if ii == jj:
         Ii = indicator(len(p0), ii)
-        # Forward
-        if p0[ii] - steps[ii] <= lower[ii]:
+
+        # Determine position of p_i with respect to bounds
+        if p0[ii] == 0:
+            form = "forward"
+        elif p0[ii] - steps[ii] <= lower[ii]:
+            form = "forward"
+        elif p0[ii] + steps[ii] >= upper[ii]:
+            form = "backward"
+        else:
+            form = "central"
+
+        if form == "forward":
             f_f = func(p0 + steps * Ii, *args)
             f_2f = func(p0 + 2 * steps * Ii, *args)
             elem = (f_0 - 2 * f_f + f_2f) / steps[ii] ** 2
-        # Backward
-        elif p0[ii] + steps[ii] >= upper[ii]:
+
+        elif form == "backward":
             f_b = func(p0 - steps * Ii, *args)
             f_2b = func(p0 - 2 * steps * Ii, *args)
             elem = (f_0 - 2 * f_b + f_2b) / steps[ii] ** 2
-        # Central
+
         else:
             f_b = func(p0 - steps * Ii, *args)
             f_f = func(p0 + steps * Ii, *args)
@@ -596,75 +649,96 @@ def hessian_elem(func, p0, steps, bounds, ii, jj, args=()):
         Ii = indicator(len(p0), ii)
         Ij = indicator(len(p0), jj)
 
-        if p0[ii] + steps[ii] >= upper[ii]:
-            # Backward/backward
-            if p0[jj] + steps[jj] >= upper[jj]: 
-                f_bb = func(p0 - steps * (Ii + Ij), *args)
-                f_0b = func(p0 - steps * Ij, *args)
-                f_b0 = func(p0 - steps * Ii, *args)
-                elem = (f_bb - f_0b - f_b0 + f_0) / (steps[ii] * steps[jj])
-            # Backward/forward
-            elif p0[jj] - steps[jj] <= lower[jj]:
-                f_0f = func(p0 + steps * Ij, *args)
-                f_bf = func(p0 + steps * (Ij - Ii), *args)
-                f_b0 = func(p0 - steps * Ii, *args)
-                elem = (f_0f - f_0 - f_bf + f_b0) / (steps[ii] * steps[jj])
-            # Backward/central
-            else:
-                f_0f = func(p0 + steps * Ij, *args)
-                f_bf = func(p0 + steps * (Ij - Ii), *args)
-                f_0b = func(p0 - steps * Ij, *args)
-                f_bb = func(p0 - steps * (Ii + Ij), *args)
-                elem = (f_0f - f_bf - f_0b + f_bb) / (2 * steps[ii] * steps[jj])
-
+        # Determine position of p_i, p_j with respect to bounds
+        if p0[ii] == 0:
+            form_i = "forward"
         elif p0[ii] - steps[ii] <= lower[ii]:
-            # Forward/backward
-            if p0[jj] + steps[jj] >= upper[jj]: 
-                f_f0 = func(p0 + steps * Ii, *args)
-                f_fb = func(p0 + steps * (Ii - Ij), *args)
-                f_0b = func(p0 - steps * Ij, *args)
-                elem = (f_f0 - f_fb - f_0 + f_0b) / (steps[ii] * steps[jj])
-            # Forward/forward
-            elif p0[jj] - steps[jj] <= lower[jj]:
-                f_ff = func(p0 + steps * (Ii + Ij), *args)
-                f_f0 = func(p0 + steps * Ii, *args)
-                f_0f = func(p0 + steps * Ij, *args)
-                elem = (f_ff - f_f0 - f_0f + f_0) / (steps[ii] * steps[jj])
-            # Forward/central
-            else:
-                f_ff = func(p0 + steps * (Ii + Ij), *args)
-                f_fb = func(p0 + steps * (Ii - Ij), *args)
-                f_0f = func(p0 + steps * Ij, *args)
-                f_0b = func(p0 - steps * Ij, *args)
-                elem = (f_ff - f_fb - f_0f + f_0b) / (2 * steps[ii] * steps[jj])
+            form_i = "forward"
+        elif p0[ii] + steps[ii] >= upper[ii]:
+            form_i = "backward"
+        else:
+            form_i = "central"
+
+        if p0[jj] == 0:
+            form_j = "forward"
+        elif p0[jj] - steps[jj] <= lower[jj]:
+            form_j = "forward"
+        elif p0[jj] + steps[jj] >= upper[jj]:
+            form_j = "backward"
+        else:
+            form_j = "central"
+        form = ",".join([form_i, form_j])
+
+        if form == "central,central":
+            f_ff = func(p0 + steps * (Ii + Ij), *args)
+            f_fb = func(p0 + steps * (Ii - Ij), *args)
+            f_bf = func(p0 + steps * (Ij - Ii), *args)
+            f_bb = func(p0 - steps * (Ii + Ij), *args)
+            elem = (f_ff - f_fb - f_bf + f_bb) / (4 * steps[ii] * steps[jj])
+
+        elif form == "backward,backward":
+            f_bb = func(p0 - steps * (Ii + Ij), *args)
+            f_0b = func(p0 - steps * Ij, *args)
+            f_b0 = func(p0 - steps * Ii, *args)
+            elem = (f_bb - f_0b - f_b0 + f_0) / (steps[ii] * steps[jj])
+
+        elif form == "backward,forward":
+            f_0f = func(p0 + steps * Ij, *args)
+            f_bf = func(p0 + steps * (Ij - Ii), *args)
+            f_b0 = func(p0 - steps * Ii, *args)
+            elem = (f_0f - f_0 - f_bf + f_b0) / (steps[ii] * steps[jj])
+
+        elif form == "backward,central":
+            f_0f = func(p0 + steps * Ij, *args)
+            f_bf = func(p0 + steps * (Ij - Ii), *args)
+            f_0b = func(p0 - steps * Ij, *args)
+            f_bb = func(p0 - steps * (Ii + Ij), *args)
+            elem = (f_0f - f_bf - f_0b + f_bb) / (2 * steps[ii] * steps[jj])
+
+        elif form == "forward,backward":
+            f_f0 = func(p0 + steps * Ii, *args)
+            f_fb = func(p0 + steps * (Ii - Ij), *args)
+            f_0b = func(p0 - steps * Ij, *args)
+            elem = (f_f0 - f_fb - f_0 + f_0b) / (steps[ii] * steps[jj])
+
+        elif form == "forward,forward":
+            f_ff = func(p0 + steps * (Ii + Ij), *args)
+            f_f0 = func(p0 + steps * Ii, *args)
+            f_0f = func(p0 + steps * Ij, *args)
+            elem = (f_ff - f_f0 - f_0f + f_0) / (steps[ii] * steps[jj])
+
+        elif form == "forward,central":
+            f_ff = func(p0 + steps * (Ii + Ij), *args)
+            f_fb = func(p0 + steps * (Ii - Ij), *args)
+            f_0f = func(p0 + steps * Ij, *args)
+            f_0b = func(p0 - steps * Ij, *args)
+            elem = (f_ff - f_fb - f_0f + f_0b) / (2 * steps[ii] * steps[jj])
+
+        elif form == "central,backward":
+            f_f0 = func(p0 + steps * Ii, *args)
+            f_fb = func(p0 + steps * (Ii - Ij), *args)
+            f_b0 = func(p0 - steps * Ii, *args)
+            f_bb = func(p0 - steps * (Ii + Ij), *args)
+            elem = (f_f0 - f_fb - f_b0 + f_bb) / (2 * steps[ii] * steps[jj])
+
+        elif form == "central,forward":
+            f_ff = func(p0 + steps * (Ii + Ij), *args)
+            f_f0 = func(p0 + steps * Ii, *args)
+            f_bf = func(p0 + steps * (Ij - Ii), *args)
+            f_b0 = func(p0 - steps * Ii, *args)
+            elem = (f_ff - f_f0 - f_bf + f_b0) / (2 * steps[ii] * steps[jj])
 
         else:
-            # Central/backward
-            if p0[jj] + steps[jj] >= upper[jj]: 
-                f_f0 = func(p0 + steps * Ii, *args)
-                f_fb = func(p0 + steps * (Ii - Ij), *args)
-                f_b0 = func(p0 - steps * Ii, *args)
-                f_bb = func(p0 - steps * (Ii + Ij), *args)
-                elem = (f_f0 - f_fb - f_b0 + f_bb) / (2 * steps[ii] * steps[jj])
-            # Central/forward
-            elif p0[jj] - steps[jj] <= lower[jj]:
-                f_ff = func(p0 + steps * (Ii + Ij), *args)
-                f_f0 = func(p0 + steps * Ii, *args)
-                f_bf = func(p0 + steps * (Ij - Ii), *args)
-                f_b0 = func(p0 - steps * Ii, *args)
-                elem = (f_ff - f_f0 - f_bf + f_b0) / (2 * steps[ii] * steps[jj])
-            # Central/central
-            else:
-                f_ff = func(p0 + steps * (Ii + Ij), *args)
-                f_fb = func(p0 + steps * (Ii - Ij), *args)
-                f_bf = func(p0 + steps * (Ij - Ii), *args)
-                f_bb = func(p0 - steps * (Ii + Ij), *args)
-                elem = (f_ff - f_fb - f_bf + f_bb) / (4 * steps[ii] * steps[jj])
+            raise ValueError("Invalid form") 
 
-    return elem
+    if return_form: 
+        ret = (elem, form)
+    else:
+        ret = elem
+    return ret
 
 
-def get_grad(
+def get_score(
     p0, 
     func, 
     model_args, 
@@ -690,7 +764,7 @@ def get_grad(
         that `func` can be evaluated at the value of the bound, unless it
         is an infinite upper bound.
 
-    :returns array: Gradient (score) vector
+    :returns array: Score, as a column vector
     """
     if bounds is None:
         bounds = (np.zeros(len(p0)), np.full(len(p0), np.inf))
@@ -735,4 +809,3 @@ def get_grad(
             score[ii, 0] = (f_f - f_b) / (2 * steps[ii])
 
     return score
-

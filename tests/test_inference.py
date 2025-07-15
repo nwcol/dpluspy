@@ -1,13 +1,12 @@
 
+import dpluspy
 import numpy as np
 import unittest
 
-from dpluspy import inference
 
+class WriteMe(unittest.TestCase):
 
-class Test___(unittest.TestCase):
-
-    def test__(self):
+    def write_me(self):
         pass
 
 
