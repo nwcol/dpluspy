@@ -14,7 +14,7 @@ def subset_stats(
     to_pops=None, 
     min_r=None, 
     max_r=None,
-    return_dict=True
+    return_dict=False
 ):
     """
     Subset a dictionary holding statistics by population and/or r. 
@@ -27,7 +27,7 @@ def subset_stats(
     :param max_r: Maximum upper bin edge, inclusive (default None).
     :param return_dict: If True, return a dictionary with the same fields as
         required for the input- otherwise return bins, means and varcovs in a 
-        tuple (default True).
+        tuple (default False).
 
     :returns: Dictionary of subsetted statistics.
     :rtype: dict
