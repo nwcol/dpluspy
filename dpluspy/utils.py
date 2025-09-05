@@ -85,9 +85,9 @@ def _get_latex_names(pop_ids, statistic="D^+"):
     for i, pop0 in enumerate(pop_ids):
         for pop1 in pop_ids[i:]:
             if pop0 == pop1:
-                names.append(rf"${statistic}_{{\text{{{pop0}}}}}$")
+                names.append(rf"${statistic}(\text{{{pop0}}})$")
             else:
-                names.append(rf"${statistic}_{{\text{{{pop0}, {pop1}}}}}$")
+                names.append(rf"${statistic}(\text{{{pop0}, {pop1}}})$")
     return names
 
 

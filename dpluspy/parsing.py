@@ -706,8 +706,8 @@ def _compute_stats_within(
 def _compute_stats_between(
     pop_genotypes_left,
     pop_genotypes_right,
-    left_mapeft,
-    right_mapight,
+    left_map,
+    right_map,
     bins, 
     cross_pop=True,
     phased=False
@@ -745,10 +745,10 @@ def _compute_stats_between(
                 G_r = pop_genotypes_right[pop_i]
                 if phased:
                     sums[:-1, idx] = _haplotype_D_plus_between(
-                        G_l, G_r, left_mapeft, right_mapight, bins)
+                        G_l, G_r, left_map, right_map, bins)
                 else:
                     sums[:-1, idx] = _genotype_D_plus_between(
-                        G_l, G_r, left_mapeft, right_mapight, bins)
+                        G_l, G_r, left_map, right_map, bins)
             else:
                 if not cross_pop:
                     continue
@@ -759,11 +759,11 @@ def _compute_stats_between(
                 if phased:
                     sums[:-1, idx] = _cross_haplotype_D_plus_between(
                         G_li, G_lj, G_ri, G_rj, 
-                        left_mapeft, right_mapight, bins)
+                        left_map, right_map, bins)
                 else:
                     sums[:-1, idx] = _cross_genotype_D_plus_between(
                         G_li, G_lj, G_ri, G_rj, 
-                        left_mapeft, right_mapight, bins)
+                        left_map, right_map, bins)
             idx += 1
     sums[-1] = 0
     return sums

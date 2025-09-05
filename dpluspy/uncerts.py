@@ -252,6 +252,7 @@ def GIM_uncerts(
     model_func=_model_func,
     verbose=True,
     bounds=None,
+    use_bounds=False,
     return_GIM=False
 ):
     """
@@ -299,6 +300,9 @@ def GIM_uncerts(
         fitted_u=fitted_u,
         approx_method=approx_method
     )
+
+    if use_bounds and bounds is None:
+        bounds = set_up_bounds(param_file, params, param_names)
 
     GIM, HH, JJ = get_godambe(
         params,

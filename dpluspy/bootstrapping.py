@@ -267,7 +267,10 @@ def weighted_means_across_regions(regions, aggregate=False):
         tot_ulurs = mut_facs[:, :-1].sum(1)
         avg_ulurs = (tot_ulurs / tot_pair_counts)[:, None]
         # Compose factors for each interval and sum them up
-        all_factors = mut_facs[:, :-1] / avg_ulurs
+       
+        # all_factors = mut_facs[:, :-1] / avg_ulurs
+        all_factors = mut_facs[:, :-1] / (mut_facs[:, -1].sum() / denoms[:, -1].sum()) ** 2
+        
         factors = all_factors.sum(0)
         factors = factors[:, None]
 

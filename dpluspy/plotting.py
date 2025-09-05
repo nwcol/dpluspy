@@ -44,7 +44,8 @@ def plot_D_plus_curves(
     hline=None,
     out=None,
     show=True,
-    colors=None
+    colors=None,
+    ax=None
 ):
     """
     Plot an arbitrary number of datasets and model expectations on shared axes.
@@ -168,18 +169,23 @@ def plot_D_plus_curves(
         mids = utils._map_function(mids) * 0.01
         x_label = "cM"
 
-    fig, axs = plt.subplots(
-        rows, cols, figsize=figsize, layout="constrained", 
-        sharex=sharex, sharey=sharey
-    )
-    
-    if rows > 1:
-        axs = axs.flat
-    elif cols == 1:
-        axs = [axs]
+    if not ax:
+        fig, axs = plt.subplots(
+            rows, cols, figsize=figsize, layout="constrained", 
+            sharex=sharex, sharey=sharey
+        )
+        
+        if rows > 1:
+            axs = axs.flat
+        elif cols == 1:
+            axs = [axs]
 
-    for ax in axs[num_stats:]:
-        ax.remove()
+        for ax in axs[num_stats:]:
+            ax.remove()
+    else:
+        fig = None
+        assert len(stats_to_plot) == 1
+        axs = [ax]
 
     if colors is None:
         # special cases for color assignment
@@ -232,7 +238,7 @@ def plot_D_plus_curves(
         if i % cols == 0:
             ax.set_ylabel(ylabel)
         stat_name = stat_names[k]
-        ax.set_title(stat_name, y=0.85)
+        ax.set_title(stat_name, y=0.85, fontsize=6)
         if ylim is not None:
             ax.set_ylim(ylim,)
         if grid:
@@ -270,15 +276,16 @@ def plot_D_plus_curves(
         if grid:
             ax.grid(alpha=0.3)
 
-    if len(labels) > 1:
-            ncols = int(cols * ax_size)
-            fig.legend(
-                framealpha=0, loc='lower center', ncols=ncols, 
-                bbox_to_anchor=(0.5, -0.1))
-    if title:
-        fig.suptitle(title, x=0.04, horizontalalignment='left')
-    else:
-        fig.suptitle("")
+    if fig is not None:
+        if len(labels) > 1:
+                ncols = int(cols * ax_size)
+                fig.legend(
+                    framealpha=0, loc='lower center', ncols=ncols, 
+                    bbox_to_anchor=(0.5, -0.1))
+        if title:
+            fig.suptitle(title, x=0.04, horizontalalignment='left')
+        else:
+            fig.suptitle("")
 
     if out:
         if out.endswith(".pdf"):
