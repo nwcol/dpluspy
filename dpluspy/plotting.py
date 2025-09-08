@@ -105,6 +105,12 @@ def plot_D_plus_curves(
             varcovs = [varcovs] 
 
     # check labels and build them if necessary
+    if labels is False or labels is None:
+        write_labels = False 
+        labels = []
+    else:
+        write_labels = True
+
     if len(labels) == 0:
         if len(means) == 1:
             labels = ["Data"]
@@ -277,7 +283,7 @@ def plot_D_plus_curves(
             ax.grid(alpha=0.3)
 
     if fig is not None:
-        if len(labels) > 1:
+        if len(labels) > 1 and write_labels is True:
                 ncols = int(cols * ax_size)
                 fig.legend(
                     framealpha=0, loc='lower center', ncols=ncols, 
