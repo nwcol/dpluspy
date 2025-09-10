@@ -169,7 +169,7 @@ def compute_stats(
     ret_bins=None
 ):
     """
-    
+    Compute D+ and H in several intervals from loaded data.
     """
     samples = list(genotype_dict.keys())
     ret = dict()
