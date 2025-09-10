@@ -95,18 +95,18 @@ def load_bootstrap_reps(
     bins = archive["bins"]
     means = archive["means"]
     varcovs = archive["varcovs"]
-    replicates = archive["replicates"]
+    bootreps = archive["bootreps"]
     if num_reps is not None:
-        if num_reps > len(replicates):
+        if num_reps > len(bootreps):
             raise ValueError("`num_reps` exceeds number of replicates")
-        replicates = random.sample(replicates, k=num_reps)
+        bootreps = random.sample(bootreps, k=num_reps)
     if graph is not None:
         to_pops = graph_data_overlap(graph, pop_ids)
     if to_pops is not None:
         means = bootstrapping.subset_means(means, pop_ids, to_pops)
         varcovs = bootstrapping.subset_varcovs(varcovs, pop_ids, to_pops)
-        replicates = [bootstrapping.subset_means(rep, pop_ids, to_pops) 
-                      for rep in replicates]
+        bootreps = [bootstrapping.subset_means(rep, pop_ids, to_pops) 
+                      for rep in bootreps]
         pop_ids = to_pops
     if return_dict:
         ret = {
@@ -114,10 +114,10 @@ def load_bootstrap_reps(
             "pop_ids": pop_ids,
             "means": means,
             "varcovs": varcovs,
-            "replicates": replicates
+            "bootreps": bootreps
         }
     else:
-        ret = (pop_ids, bins, means, varcovs, replicates)
+        ret = (pop_ids, bins, means, varcovs, bootreps)
     return ret
 
 
