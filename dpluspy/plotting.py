@@ -301,7 +301,55 @@ def plot_D_plus_curves(
     if show:
         plt.show()
 
-    return 
+    return
+
+
+def plot_model_on_ax(
+    ax, 
+    model,
+    bins,
+    stat,
+    label,
+    color=None, 
+    lw=1, 
+    linestyle="-"
+):
+    """
+    """
+    xs = (bins[1:] + bins[:-1]) / 2
+    statistics = model.names()[0]
+    idx = statistics.index(stat)
+    ys = [model[l][idx] for l in range(len(xs))]
+    ax.plot(xs, ys, linestyle=linestyle, color=color, lw=lw, label=label)
+    ax.set_xscale("log")
+    return
+
+
+def plot_data_on_ax(
+    ax, 
+    data,
+    stat,
+    label,
+    color=None, 
+    lw=1, 
+    linestyle="--"
+):
+    """
+    
+    """
+    ms = data["means"]
+    vs = data["varcovs"]
+    bins = data["bins"]
+    xs = (bins[1:] + bins[:-1]) / 2
+    statistics = utils._DP_names(list(range(len(data["pop_ids"]))))
+    idx = statistics.index(stat)
+    errs = np.array([vs[l][idx, idx] ** 0.5 * 1.96 for l in range(len(xs))])
+    ys = np.array([ms[j][idx] for j in range(len(xs))])
+    ax.fill_between(xs, ys - errs, ys + errs, alpha=0.3, color=color,
+                    edgecolor='none')
+    ax.plot(xs, ys, linestyle=linestyle, color=color, lw=lw, label=label)
+    ax.set_xscale("log")
+    return
 
 
 def plot_parameters(

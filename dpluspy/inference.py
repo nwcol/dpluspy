@@ -2,15 +2,17 @@
 Functions for fitting parameters and computing model likelihoods with D+
 """
 
+from collections import defaultdict
 from datetime import datetime
 import demes
 import gzip
-import numpy as np
 import moments
-import scipy
+import numpy as np
 import os
+import pandas
 import pickle
 import random
+import scipy
 
 from . import bootstrapping
 from .datastructures import DPlusStats
@@ -750,24 +752,53 @@ def transpose_params(
     param_file0, 
     graph_file1, 
     output_file,
-    param_file1=None,
-    mapping=None
+    param_file1=None
 ):
     """
     Load the parameter values specified by `param_file` and `graph0`, enter
     the defined parameter values into `graph1`, and save it at `output_file`.
 
     """
-    _, params0 = _load_params(graph_file0, param_file0)
+    pnames0, params0 = _load_params(graph_file0, param_file0)
     builder = moments.Demes.Inference._get_demes_dict(graph_file1)
-    options0 = moments.Demes.Inference._get_params_dict(param_file0)
-    if mapping is not None:
+    if param_file1 is not None:
         options = moments.Demes.Inference._get_params_dict(param_file1)
-        raise ValueError("Not implemented")
+        pnames1, params1 = _load_params(graph_file1, param_file1)
+        for i, pname in enumerate(pnames1): 
+            if pname in pnames0:
+                idx = pnames0.index(pname)
+                params1[i] = params0[idx]
+        params = params1
     else:
+        options = moments.Demes.Inference._get_params_dict(param_file0)
         params = params0
-        options = options0
     builder = moments.Demes.Inference._update_builder(builder, options, params)
     graph = demes.Graph.fromdict(builder)
     demes.dump(graph, output_file)
     return
+
+
+def load_param_table(options_fname, graph_fnames):
+    """
+    Load a table of likelihoods and parameter values from one or more graphs.
+    """
+    data = []
+    for graph_fname in graph_fnames: 
+        dfdict = defaultdict(list)
+        try:
+            g = demes.load(graph_fname)
+            try:
+                ll = g.metadata["opt_info"]["ll"]
+            except:
+                ll = None 
+            dfdict["fname"].append(graph_fname)
+            dfdict["ll"].append(ll)
+            pnames, pvals = _load_params(graph_fname, options_fname)
+            for pname, pval in zip(pnames, pvals):
+                dfdict[pname].append(pval)
+            df = pandas.DataFrame(dfdict)
+            data.append(df)
+        except: 
+            print(f"Could not load parameters for {graph_fname}, {options_fname}")
+    df = pandas.concat(data)
+    return df

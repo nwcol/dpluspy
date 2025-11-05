@@ -43,7 +43,55 @@ def parse_stats(
     verbose=True
 ):
     """
+    Compute D+, H and their denominators from a VCF file or Tskit tree sequence
+    in one or more genomic intervals.
+    
+    :param str vcf_file: Pathname of VCF file, or a Tskit tree sequence 
+        instance with mutations. Provides sites and genotypes.
+    :param float u_bar: Mean mutation rate for normalizing the statistic when
+        mutation weighting is applied.
+    :param list ts_sample_ids: Names of ts samples when a tree seq is given.
+    :param str bed_file: Pathname of BED file defining regions to parse,
+        required to compute the denominator
+    :param str label_file: Optional pathname of whitespace-separated file 
+        mapping sample IDs to populations. The default behavior takes each VCF 
+        sample as a member of a distinct population.
+    :param dict labels: Optional dictionary mapping labels to sample IDs.
+    :param str rec_map_file: Optional recombination map in HapMap or BEDGRAPH
+        format. `rec_map_file` or `r` must be given.
+    :param str pos_col: Recombination map file "position" column to use
+        (default "Position(bp)").
+    :param str pos_col: Recombination map file "map" column to use 
+        (default "Map(cM)").
+    :param str map_sep: Column separator in the recombination map file.
+    :param str interp_method: Method for interpolating rec. map coordinates
+    :param float r: Uniform recombination rate for map interpolation, primarily
+        for use when parsing simulated data
+    :param array r_bins: Bin edges given in recombination fraction units.
+    :param array bp_bins: Bin edges in physical units (base pairs).
+    :param str mut_map_file: Pathname of a BEDGRAPH or site-resolution .npy 
+        file containing estimated mutation rates. If provided, `mut_facs` will
+        be computed and returned with other statistics for use in weighting.
+    :param str mut_col: Column specifying the mutation rate in a mutation map
+        file (default None).
+    :param list intervals: List of one-indexed genomic intervals to parse.
+    :param str interval_file: Pathname of whitespace-separated file holding
+        one interval on each line.
+    :param str chrom: Optional chromosome ID, used to name intervals
+    :param bool phased: If True, treat all VCF data as phased and use the 
+        haplotype estimators for D+ (default False)
+    :param bool get_cross_pop: If True (default), compute cross-population 
+        D+ and H statistics
+    :param bool get_denoms: If true (default), compute the denominator for D+.
+    :param bool allow_multi: If True (default), parse over multiallelic sites
+    :param bool missing_to_ref: If True (default False), convert missing allele
+        data to the reference; otherwise sites with missing data are skipped
+    :param bool apply_filter: If True, exclude VCF sites with "FAIL" in "FILTER"
+    :param str overhang: Method to use for computing/recording D+ statistic 
+        between genomic intervals. See `compute_stats` for more information.
+    :param bool verbose: If True (default), print reports.
 
+    :returns dict: A dictionary holding raw windowed sums of D+ and H statistics
     """
     # Load interval file
     if interval_file is not None:
@@ -170,6 +218,32 @@ def compute_stats(
 ):
     """
     Compute D+ and H in several intervals from loaded data.
+        
+    :param array sites: Array of VCF site positions
+    :param dict genotype_dict: Dictionary mapping population names to genotype
+        arrays
+    :param function map_func: Function for computing map coordinates from 
+        physical positions
+    :param array bins: Bin edges; may be in Morgans or physical units (bp)
+    :param list intervals: Window intervals.
+    :param array mut_map: Optional mutation map, 
+    :param float u_bar: Mean mutation rate for normalizing the statistic when
+        mutation weighting is applied.
+    :param array positions: Array of callable positions
+    :param str chrom: Optional chromosome ID used to name intervals 
+        (default "None")
+    :param bool get_cross_pop: If True (default), compute and return cross-
+        population D+ and H.
+    :param bool phased: If True (default False), treat data as phased and use
+        the haplotype estimators.
+    :param bool verbose: If True (default), print progress messages as intervals
+        are parsed.
+    :param array ret_bins: Bins to return as part of output data (for use when
+        specifying bins in units of r)
+
+    :returns dict: A dictionary mapping interval names to dicts of statistics.
+        Each interval dict has keys "sums", "pop_ids", "bins", and optionally
+        "denoms".
     """
     samples = list(genotype_dict.keys())
     ret = dict()
@@ -238,6 +312,7 @@ def get_stats_within(
     phased=False
 ):
     """
+    Subset data to an interval and compute statistics within it.
     """
     start, end = interval
     where = np.where((sites >= start) & (sites < end))[0]
@@ -273,7 +348,7 @@ def get_stats_between(
     phased=False
 ):
     """
-    Higher-level than `compute_stats_within`. Subsets loaded data 
+    Higher-level than `compute_stats_within`. Subsets loaded data.
     """
     (left_start, left_end), (right_start, right_end) = intervals
     where_left = np.where((sites >= left_start) & (sites < left_end))[0]
