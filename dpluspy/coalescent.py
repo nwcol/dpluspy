@@ -2,6 +2,7 @@
 Implements several variants of the two-locus coalescent with recombination
 """
 
+
 import numpy as np
 import scipy
 
@@ -263,4 +264,44 @@ def compute_state_times(log):
     for ii in range(8):
         state_times[ii] = holding_times[_states == ii].sum()
     return state_times
+
+
+
+
+class Gamete(tuple):
+
+    def __init__(self, ):
+
+        pass
+
+    @staticmethod
+    def coalesce(gamete, gamete_):
+
+        pass
+
+    def recombine(self):
+
+        pass
+
+
+class Process():
+
+    def __init__(self, ):
+
+        pass
+    
+    @classmethod
+    def initialize(cls, ):
+        pass
+
+    def simulate(self):
+
+        pass
+
+
+class Epoch():
+
+    def __init__(self):
+        pass
+
 

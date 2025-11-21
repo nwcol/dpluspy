@@ -2,6 +2,7 @@
 Functions for computing D+ (and H) from sequence data
 """
 
+
 from datetime import datetime
 import gzip
 import io
