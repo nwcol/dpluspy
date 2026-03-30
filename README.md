@@ -1,5 +1,6 @@
-# dpluspy: inferring history with unphased genome sequences and a two-locus statistic
-This repository is an extension of `moments` (https://github.com/MomentsLD/moments) for studying demographic history with `D+`, a two-locus genetic statistic.
+# dpluspy: inferring history with single unphased genome sequences and a two-locus statistic
+This repository is an extension of `moments` (https://github.com/MomentsLD/moments) for studying demographic history with H<sub>2</sub>, a two-locus genetic statistic.
+The package takes its name from an earlier name for this statistic (D<sup>+</sup>).
 
 ## Installation
 You can install `dpluspy` directly from github using pip:
@@ -17,3 +18,4 @@ If you want to edit the code, it's useful to perform an editable install:
 ```
 pip install -e .
 ```
+
