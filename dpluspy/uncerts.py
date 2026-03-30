@@ -1,12 +1,15 @@
 """
 Functions for estimating confidence intervals and performing statistical tests
+
+Currently deprecated. Simulations suggest that the adjustments implemented in
+this module do not currently work correctly.
 """
 
 import demes
 import numpy as np
 import moments
 
-from . import inference
+import dpluspy
 
 
 def _model_func(params, args=()):
@@ -36,7 +39,7 @@ def _model_func(params, args=()):
     builder = moments.Demes.Inference._update_builder(
         builder, options, params)
     graph = demes.Graph.fromdict(builder)
-    model = inference.compute_bin_stats(
+    model = dpluspy.inference.compute_bin_stats(
         graph, 
         sampled_demes,
         sample_times=sample_times,
@@ -448,7 +451,7 @@ def get_godambe(
         else:
             model = model_func(params, model_args)
             _model_cache[key] = model
-        return inference.composite_ll(model, means, varcovs)
+        return dpluspy.inference.composite_ll(model, means, varcovs)
 
     HH = -get_hess(
         p0, 
@@ -592,7 +595,7 @@ def get_hess(
             else:
                 HH[ii, jj] = HH[jj, ii] = elem
             if verbose:
-                print(inference._current_time(), 
+                print(dpluspy.inference._current_time(),
                     f"Evaluated Hessian element ({ii}, {jj})")
     return HH
 

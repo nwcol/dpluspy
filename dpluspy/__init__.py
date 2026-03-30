@@ -6,7 +6,6 @@ from . import datastructures
 from . import inference 
 from . import uncerts
 from . import plotting
-from . import hillrobertson
 from . import coalescent
 
 DplusStats = datastructures.DPlusStats

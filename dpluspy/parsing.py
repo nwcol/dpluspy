@@ -272,7 +272,7 @@ def compute_stats(
             phased=phased
         )
         if verbose:
-            print(_current_time(), 
+            print(dpluspy.utils._current_time(),
                 f"Computed stats within chrom {chrom} interval {ii} "
                 f"{interval[0]}-{interval[1]}")
         
@@ -292,7 +292,7 @@ def compute_stats(
                 phased=phased
             )
             if verbose:
-                print(_current_time(), 
+                print(dpluspy.utils._current_time(),
                     f"Computed stats between chrom {chrom} intervals {ii} "
                     f"{left_interval[0]}-{right_interval[1]}-{interval[2]}")
 
@@ -497,7 +497,7 @@ def unphased_one_pop_within(genotypes, rec_map, bins, mut_map=None, u_bar=None):
     if u_bar is not None and mut_map is not None:
         assert len(mut_map) == len(rec_map)
         weights *= (u_bar / mut_map)
-    stats = _count_locus_pairs(rec_map, bins, weights=weights, verbose=False)
+    stats = count_pairs_within(rec_map, bins, weights=weights, verbose=False)
     return stats
 
 
@@ -534,7 +534,7 @@ def unphased_one_pop_between(
         assert len(right_mut_map) == len(right_rec_map)
         left_weights *= (u_bar / left_mut_map)
         right_weights *= (u_bar / right_mut_map)
-    stats = _count_locus_pairs_between(left_rec_map, right_rec_map, bins,
+    stats = count_pairs_between(left_rec_map, right_rec_map, bins,
         left_weights=left_weights, right_weights=right_weights, verbose=False)
     return stats
 
@@ -554,7 +554,7 @@ def unphased_cross_pop_within(
     if u_bar is not None and mut_map is not None:
         assert len(mut_map) == len(rec_map)
         weights *= (u_bar / mut_map)
-    stats = _count_locus_pairs(rec_map, bins, weights=weights, verbose=False)
+    stats = count_pairs_within(rec_map, bins, weights=weights, verbose=False)
     return stats
 
 
@@ -580,7 +580,7 @@ def unphased_cross_pop_between(
         assert len(right_mut_map) == len(right_rec_map)
         left_weights *= (u_bar / left_mut_map)
         right_weights *= (u_bar / right_mut_map)
-    stats = _count_locus_pairs_between(left_rec_map, right_rec_map, bins,
+    stats = count_pairs_between(left_rec_map, right_rec_map, bins,
         left_weights=left_weights, right_weights=right_weights, verbose=False)
     return stats
 
@@ -616,7 +616,7 @@ def _phased_cross_pop_within(
         if u_bar is not None and mut_map is not None:
             assert len(mut_map) == len(rec_map)
             weights *= (u_bar / mut_map)
-        stats = _count_locus_pairs(
+        stats = count_pairs_within(
             rec_map, bins, weights=weights, verbose=False)
     else:
         # Average over haplotype-by-haplotype comparisons
@@ -660,7 +660,7 @@ def _phased_cross_pop_between(
             assert len(right_mut_map) == len(right_rec_map)
             left_weights *= (u_bar / left_mut_map)
             right_weights *= (u_bar / right_mut_map)
-        stats = _count_locus_pairs_between(
+        stats = count_pairs_between(
             left_rec_map, right_rec_map, bins, left_weights=left_weights, 
             right_weights=right_weights, verbose=False)
     else:
@@ -724,7 +724,7 @@ def denoms_within(positions, map_fxn, bins, interval):
     start, end = interval
     where = np.where((positions >= start) & (positions < end))[0]
     pos_map = map_fxn(positions[where])
-    denoms = _count_locus_pairs(pos_map, bins)
+    denoms = count_pairs_within(pos_map, bins)
     denoms = np.append(denoms, len(where))
     return denoms
 
@@ -747,7 +747,7 @@ def denoms_between(positions, map_fxn, bins, intervals):
     left_map = map_fxn(positions[where_left])
     where_right = np.where((positions >= rstart) & (positions < rend))[0]
     right_map = map_fxn(positions[where_right])
-    denoms = _count_locus_pairs_between(left_map, right_map, bins)
+    denoms = count_pairs_between(left_map, right_map, bins)
     denoms = np.append(denoms, 0)
     return denoms
 
@@ -815,7 +815,7 @@ def _compute_pi_xy(genotypes_i, genotypes_j):
     return pi
 
 
-def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
+def count_pairs_within(site_map, bins, weights=None, verbose=False):
     """
     Compute the numbers of site pairs that fall within each of a series of 
     recombination bins, in a contiguous genomic window. 
@@ -836,7 +836,7 @@ def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
     sums = np.zeros(num_bins, dtype=np.float64)
 
     if len(site_map) == 0:
-        print(dpluspy._current_time(), 'Empty window: returning 0')
+        print(dpluspy.utils._current_time(), 'Empty window: returning 0')
         return sums
     if weights is not None:
         if len(weights) != len(site_map):
@@ -857,7 +857,7 @@ def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
             sums[i] = (weights * (cum_sum1 - cum_sum0)).sum()
             cum_sum0 = cum_sum1
             if verbose:
-                print(_current_time(), 
+                print(dpluspy.utils._current_time(),
                     f"locus pairs summed (within) in bin {i}")
     else:
         if bins[0] == 0:
@@ -870,12 +870,47 @@ def _count_locus_pairs(site_map, bins, weights=None, verbose=False):
             sums[i] = (edge1 - edge0).sum() 
             edge0 = edge1
             if verbose:
-                print(_current_time(), 
+                print(dpluspy.utils._current_time(),
                     f"locus pairs summed (within) in bin {i}")
     return sums
 
 
-def _count_locus_pairs_between(
+def count_h2_within(rec_map, bins, het_map, verbose=False):
+    """
+    Computes both numerator/denominator of the H2 statistic; primarily for
+    use with genotype probabilities.
+
+    :param rec_map: Array defining the (linear) recombination map coordinates
+        of sites in `het_map`
+    :param bins: Array of bin edges
+    :param het_map: Array of weights assigned to sites.
+    """
+    num_bins = len(bins) - 1
+    numer = np.zeros(num_bins, dtype=np.float64)
+    denom = np.zeros(num_bins, dtype=np.float64)
+
+    if bins[0] == 0:
+        indices_0 = np.arange(1, len(rec_map) + 1)
+    else:
+        indices_0 = np.searchsorted(rec_map, rec_map + bins[0])
+
+    cum_weights = np.concatenate(([0], np.cumsum(het_map)))
+    cum_sum_0 = cum_weights[indices_0]
+
+    for ii, upper in enumerate(bins[1:]):
+        indices_1 = np.searchsorted(rec_map, rec_map + upper)
+        denom[ii] = (indices_1 - indices_0).sum()
+        cum_sum_1 = cum_weights[indices_1]
+        numer[ii] = (het_map * (cum_sum_1 - cum_sum_0)).sum()
+        indices_0 = indices_1
+        cum_sum_0 = cum_sum_1
+        if verbose:
+            print(dpluspy.utils._current_time(),
+                  f"locus pairs summed (within) in bin {ii}")
+    return numer, denom
+
+
+def count_pairs_between(
     left_map, 
     right_map, 
     bins, 
@@ -893,7 +928,7 @@ def _count_locus_pairs_between(
     sums = np.zeros(num_bins, dtype=np.float64)
 
     if len(left_map) == 0 or len(right_map) == 0:
-        print(_current_time(), 'Empty windows: returning 0')
+        print(dpluspy.utils._current_time(), 'Empty windows: returning 0')
         return sums
     if not np.all(np.diff(left_map) >= 0):
         raise ValueError('`left_map` must increase monotonically')
@@ -911,8 +946,6 @@ def _count_locus_pairs_between(
         if len(right_weights) != len(right_map):
             raise ValueError("Map and weight lengths mismatch for block 2")
 
-    num_bins = len(bins) - 1
-
     if left_weights is not None:
         indices = np.searchsorted(right_map, left_map + bins[0])
         assert np.all(indices >= 0)
@@ -925,7 +958,7 @@ def _count_locus_pairs_between(
             sums[i] = (left_weights * (cum_sum1 - cum_sum0)).sum()
             cum_sum0 = cum_sum1
             if verbose:
-                print(_current_time(), 
+                print(dpluspy.utils._current_time(),
                     f"locus pairs summed (between) in bin {i}")
     else:
         edge0 = np.searchsorted(right_map, left_map + bins[0])
@@ -934,9 +967,42 @@ def _count_locus_pairs_between(
             sums[i] = (edge1 - edge0).sum() 
             edge0 = edge1
             if verbose:
-                print(_current_time(), 
+                print(dpluspy.utils._current_time(),
                     f"locus pairs summed (between) in bin {i}")
     return sums
+
+
+def count_h2_between(
+    left_rec_map,
+    right_rec_map,
+    bins,
+    left_het_map,
+    right_het_map,
+    verbose=False
+):
+    """
+    Computes both numerator/denominator of the H2 statistic; primarily for
+    use with genotype probabilities.
+    """
+    num_bins = len(bins) - 1
+    numer = np.zeros(num_bins, dtype=np.float64)
+    denom = np.zeros(num_bins, dtype=np.float64)
+
+    indices_0 = np.searchsorted(right_rec_map, left_rec_map + bins[0])
+    cum_weights = np.concatenate(([0], np.cumsum(right_het_map)))
+    cum_sum_0 = cum_weights[indices_0]
+
+    for ii, upper in enumerate(bins[1:]):
+        indices_1 = np.searchsorted(right_rec_map, left_rec_map + upper)
+        denom[ii] = (indices_1 - indices_0).sum()
+        cum_sum_1 = cum_weights[indices_1]
+        numer[ii] = (left_het_map * (cum_sum_1 - cum_sum_0)).sum()
+        indices_0 = indices_1
+        cum_sum_0 = cum_sum_1
+        if verbose:
+            print(dpluspy.utils._current_time(),
+                  f"locus pairs summed (between) in bin {ii}")
+    return numer, denom
 
 
 def _get_uniform_recombination_map(r, L):
@@ -1217,7 +1283,7 @@ def _read_vcf(
         pos1 = int(split_line[1])
         if verbose > 1:
             if counter % verbose == 0 and counter > 1:
-                print(_current_time(),
+                print(dpluspy.utils._current_time(),
                     f'parsed POS {pos1} line {counter}')
         counter += 1
 
@@ -1270,11 +1336,4 @@ def _read_vcf(
     sites = np.array(sites, np.int64)
     genotypes = np.array(genotypes, np.int64)
     return sites, genotypes, sample_ids
-
-
-def _current_time():
-    """
-    Return a string giving the time and date with yyyy-mm-dd format.
-    """
-    return "[" + datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S") + "]"
 

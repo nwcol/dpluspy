@@ -145,12 +145,7 @@ def load_raw_stats(filenames):
     return regions
 
 
-def bootstrap_stats(
-    regions, 
-    num_reps=None, 
-    weighted=False,
-    aggregate=False
-):
+def bootstrap_stats(regions, num_reps=None):
     """
     Perform a bootstrap to obtain covariance matrices for D+ and H statistics,
     estimated in genomic blocks. Operates upon sums of D+, H, and their
@@ -159,33 +154,24 @@ def bootstrap_stats(
     :param dict regions: Dictionary of sums corresponding to genomic regions.
     :param int num_reps: Optional number of bootstrap replicates to assemble
         (defalts to `len(regions)`).
-    :param bool weighted: If True (default False), compute mutation-rate 
-        weighted statistics. Assumes "mut_facs" exists in each region.
     
     :returns: List of means and list of bootstrap covariances.
     """
     if num_reps is None:
         num_reps = len(regions)
-    if weighted:
-        means = weighted_means_across_regions(regions)
-    else:
-        means = means_across_regions(regions)
-    bootstrap_means = get_bootstrap_reps(
-        regions, num_reps=num_reps, weighted=weighted, aggregate=aggregate
-    )
+    means = means_across_regions(regions)
+    bootstrap_means = get_bootstrap_reps(regions, num_reps=num_reps)
     varcovs = compute_varcovs(bootstrap_means)
     return means, varcovs
 
 
-def get_bootstrap_reps(data, num_reps=None, weighted=False, aggregate=False):
+def get_bootstrap_reps(data, num_reps=None):
     """
     Perform a bootstrap and return a list of replicate means.
 
     :param dict data: Dictionary of sums corresponding to genomic regions.
     :param int num_reps: Optional number of bootstrap replicates to assemble
         (defalts to `len(regions)`).
-    :param bool weighted: If True (default False), compute mutation-rate 
-        weighted statistics. Assumes "mut_facs" exists in each region.
 
     :returns list: Bootstrap replicate means
     """
@@ -197,11 +183,7 @@ def get_bootstrap_reps(data, num_reps=None, weighted=False, aggregate=False):
     for _ in range(num_reps):
         samples = random.choices(labels, k=sample_size)
         sampled_data = [data[sample] for sample in samples]
-        if weighted:
-            replicate = _weighted_means_across_replicates(
-                sampled_data, aggregate=aggregate)
-        else:
-            replicate = _means_across_replicates(sampled_data)
+        replicate = _means_across_replicates(sampled_data)
         replicates.append(replicate)
     return replicates
  
@@ -223,6 +205,7 @@ def compute_varcovs(bootstrap_means):
         varcovs.append(varcov_matrix)
     return varcovs
 
+
 def means_across_regions(regions):
     """
     Compute mean D+ and H across genomic windows.
@@ -238,61 +221,9 @@ def means_across_regions(regions):
     return means
 
 
-def weighted_means_across_regions(regions, aggregate=False):
-    """
-    Compute mean mutation-rate weighted D+ across a dictionary of genomic
-    regions.
-    
-    :param dict regions: Dictionary of sums corresponding to genomic regions.
-    :param bool aggregate: If True, compute average uL * uR across the whole
-        data set and use it to calculate weights. If False (default), computes
-        uL * uR in each region.
-    """
-    # Construct arrays
-    sums = np.array([regions[key]["sums"] for key in regions])
-    denoms = np.array([regions[key]["denoms"] for key in regions])
-    mut_facs = np.array([regions[key]["mut_facs"] for key in regions])
-
-    if aggregate:
-        # Compute genome-wide average ul * ur
-        tot_pair_count = denoms[:, :-1].sum()
-        tot_ulur = mut_facs[:, :-1].sum()
-        avg_ulur = tot_ulur / tot_pair_count
-        # Sum ul * ur over the genome but keep bins separate
-        factors = mut_facs[:, :-1].sum(0) / avg_ulur
-        factors = factors[:, None]
-    else:
-        # Compute average ul * ur in each interval and bin
-        tot_pair_counts = denoms[:, :-1].sum(1)
-        tot_ulurs = mut_facs[:, :-1].sum(1)
-        avg_ulurs = (tot_ulurs / tot_pair_counts)[:, None]
-        # Compose factors for each interval and sum them up
-       
-        # all_factors = mut_facs[:, :-1] / avg_ulurs
-        all_factors = mut_facs[:, :-1] / (mut_facs[:, -1].sum() / denoms[:, -1].sum()) ** 2
-        
-        factors = all_factors.sum(0)
-        factors = factors[:, None]
-
-    raw_means = np.zeros(sums.shape[1:], dtype=np.float64)
-    raw_means[:-1, :] = sums[:, :-1].sum(0) / factors
-    raw_means[-1, :] = sums[:, -1].sum(0) / denoms[:, -1].sum()
-    # Convert means to a list
-    means = [raw_means[i] for i in range(len(raw_means))]
-    return means
-
-
 def _means_across_replicates(replicates):
     """
     Compute mean statistics across a list of replicates. 
     """
     rep_dict = {i: replicate for i, replicate in enumerate(replicates)}
     return means_across_regions(rep_dict)
-
-
-def _weighted_means_across_replicates(replicates, aggregate=False):
-    """
-    Operates on a list of dictionaries; wraps `weighted_means_across_regions`.
-    """
-    rep_dict = {i: replicate for i, replicate in enumerate(replicates)}
-    return weighted_means_across_regions(rep_dict, aggregate=aggregate)
