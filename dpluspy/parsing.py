@@ -1,5 +1,5 @@
 """
-Functions for computing D+ (and H) from sequence data
+For computing ``H_2`` (and ``H``) from sequence data
 """
 
 

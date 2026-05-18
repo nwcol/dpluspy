@@ -6,6 +6,7 @@ from . import datastructures
 from . import inference 
 from . import uncerts
 from . import plotting
-from . import coalescent
+from . import gtprobs
+from . import simtools
 
 DplusStats = datastructures.DPlusStats
