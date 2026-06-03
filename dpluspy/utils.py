@@ -367,6 +367,12 @@ def _read_hapmap_map(filename, pos_col="Position(bp)", map_col="Map(cM)"):
     return coords, map_coords
 
 
+def get_recombination_map_func(fname, ):
+
+
+    return
+
+
 def _map_function(r):
     """
     Haldane's map function; transforms distances in recombination distance `r` 

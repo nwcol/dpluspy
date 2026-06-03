@@ -1,5 +1,10 @@
 """
 For computing ``H_2`` from genotype probability data, stored in GVCF format.
+
+Notes:
+Here, we use the numpy mask convention: where mask == True is "masked out",
+    i.e. marked inaccessible and removed from analysis by the mask, while
+    sites with mask == False pass the pass and are not filtered.
 """
 
 import gzip
@@ -8,7 +13,7 @@ import numpy as np
 import dpluspy
 
 
-def compute_sum_H2(rec_map, bins, het_probs, verbose=True):
+def compute_H2_sums(rec_map, bins, het_probs, verbose=True):
     """
     Computes the numerator and denominator of the ``H_2`` statistic across an
     array of bins.
@@ -51,29 +56,27 @@ def compute_sum_H2(rec_map, bins, het_probs, verbose=True):
     return numer, denom
 
 
-def one_sample_H2(rec_map, bins, gp_matrix):
+def within_sample_H2(rec_map, bins, gp_matrix):
     """
+    TODO
 
     :param rec_map: Array; not func
     :param bins:
     :param gp_matrix: Array of posterior genotype probabilities 0/0, 0/1, 1/1
     """
     het_probs = gp_matrix[:, 1]
-    result = compute_sum_H2(rec_map, bins, het_probs)
+    result = compute_H2_sums(rec_map, bins, het_probs)
     return result
 
 
-def two_sample_H2(rec_map, bins, gp_matrix_i, gp_matrix_j):
+def _two_sample_H2(rec_map, bins, sample_gp_arrs):
     """
-    Docstring for two_sample_stat
+    TODO
 
-    TODO deal with partial non-overlap in coverage between two samples!
+    Expects exact overlap in covered sites.
 
-    :param rec_map:
-    :param bins:
-    :param gp_matrix_i: Array of genotype probabilities for sample i
-    :param gp_matrix_j: Array of genotype probabilities for sample j
     """
+    gp_arr_i, gp_arr_j = sample_gp_arrs
     p_00_i, p_01_i, p_11_i = gp_matrix_i.T
     p_00_j, p_01_j, p_11_j = gp_matrix_j.T
     het_probs = (
@@ -83,10 +86,61 @@ def two_sample_H2(rec_map, bins, gp_matrix_i, gp_matrix_j):
         + 0.5 * p_01_i * p_01_j
         + 0.5 * p_11_i * p_01_j
         + p_00_i * p_11_j
-        + 0.5 * p_01_i * p_11_j
-    )
-    result = compute_sum_H2(rec_map, bins, het_probs)
+        + 0.5 * p_01_i * p_11_j)
+    result = compute_H2_sums(rec_map, bins, het_probs)
     return result
+
+
+def two_sample_H2(
+    mask,
+    bins,
+    rec_func,
+    sample_sites,
+    sample_alts,
+    sample_gp_arrs):
+    """
+    Computes cross-sample ``H_2`` from two sample-specific genotype probability
+    arrays.
+    """
+    mask_1 = np.sum(gp_arr_1, axis=1) < 1
+    mask_2 = np.sum(gp_arr_2, axis=1) < 1
+    coverage_mask = mask_1 | mask_2
+    # Mask sites with mismatched alternate alleles
+    alts_1, alts_2 = sample_alts
+    biallelic_mask = np.array(alts_1) != np.array(alts_2)
+    joint_mask = (mask | coverage_mask) | biallelic_mask
+    # Get recombination map
+    sites = np.where(joint_mask == 0)[0]
+    rec_map = rec_func(sites)
+    # Subset GP arrays
+    select = np.logical_not(joint_mask)
+    gp_arr_1, gp_arr_2 = sample_gp_arrs
+    trimmed_sample_gp_arrs = (gp_arr_1[select], gp_arr_2[select])
+    result = _two_sample_H2(rec_map, bins, trimmed_sample_gp_arrs)
+    return result
+
+
+def regularize_GP_array(gp_arr, sites, L=None):
+    """
+    Takes a genotype probability (GP) array
+    """
+    if L is None:
+        L = sites[-1] + 1
+    assert len(gp_arr) == len(sites)
+    out_arr = np.zeros((L, 3), np.float64)
+    for site, row in zip(sites, gp_arr):
+        out_arr[site] = row
+    return out_arr
+
+
+def phred_to_prob(phred_arr):
+    """
+    Transforms a genotype probability (GP) array expressed in normalized Phred
+    scores into an array of regular probabilities.
+    """
+    raw_arr = 10 ** (-phred_arr / 10)
+    normed_arr = raw_arr / np.sum(raw_arr, axis=1)[:, None]
+    return normed_arr
 
 
 def read_vcf(
@@ -95,8 +149,7 @@ def read_vcf(
     interval=None,
     sample_ids=None,
     apply_filter=False,
-    verbose=1e6
-):
+    verbose=1e6):
     """
     TODO write me.
 

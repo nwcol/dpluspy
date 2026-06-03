@@ -1,0 +1,5 @@
+**/__pycache__/
+dpluspy.egg-info/
+my_examples/
+scraps/
+.old/
