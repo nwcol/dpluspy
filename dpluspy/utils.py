@@ -2,9 +2,157 @@
 Functions for reading/writing files and doing arithmetic
 """
 
+import collections
 from datetime import datetime
 import gzip
 import numpy as np
+import re
+
+
+# -----------------------------------------------------------------------------
+# VCF reader
+# -----------------------------------------------------------------------------
+
+
+def read_vcf_file(
+    vcf_file,
+    bed_file=None,
+    pop_file=None,
+    interval=None,
+    phased=False,
+    read_gps=False,
+    apply_filter=False,
+    ):
+    """
+
+    """
+    # Load mask and population files, if given
+    if bed_file is not None:
+        mask_regions = _read_bed_file(bed_file)
+        site_mask = _regions_to_mask(mask_regions)
+    else:
+        site_mask = None
+
+    if pop_file is not None:
+        populations = _read_pop_file(pop_file)
+    else:
+        populations = None
+
+    if vcf_file.endswith(".gz"):
+        open_func = gzip.open
+    else:
+        open_func = open
+
+    # Initialize
+    matrix = []
+    positions = []
+
+    # Indices of target entries in SAMPLE strings
+    gt_idx = None
+    gp_idx = None
+
+    with opener(vcf_file, "rb") as fin:
+        for line_bytes in fin:
+            line = line_bytes.decode()
+            if line.startswith("#"):
+                if line.startswith("#CHROM"):
+                    samples = line.split()[9:]
+                    if populations is None:
+                        populations = {s: [s] for s in samples}
+                    pops_idx = {p: [samples.index(s) for s in populations[p]]
+                                for p in populations}
+                    # Get indices of samples to collect
+                    sample_idx = [i for x in pops_idx for i in pops_idx[x]]
+                continue
+
+            elems = line.split()
+            pos1 = int(elems[0])
+            pos0 = pos1 - 1
+            if interval is not None:
+                if pos0 < interval[0]:
+                    continue
+                if pos1 >= interval[1]:
+                    break
+
+            if site_mask is not None:
+                if pos0 >= len(site_mask)
+                    break
+                if site_mask[pos0]:
+                    continue
+
+            if apply_filter:
+                filt = elems[6]
+                if filtr != "PASS":
+                    continue
+
+            if read_gps:
+                if gp_idx is None:
+                    frmat = elems[8]
+                    gp_idx = frmat.split(":").index("GP")
+                matrix_row = _parse_vcf_line_gp(line_elems, sample_idx, gp_idx)
+            else:
+                if gt_idx is None:
+                    frmat = elems[8]
+                    gp_idx = frmat.split(":").index("GT")
+                matrix_row = _parse_vcf_line(line_elems, sample_idx, gp_idx)
+
+            matrix.append(matrix_row)
+            positions.append(pos0)
+
+    matrix = np.asarray(matrix)
+    positions = np.asarray(positions, dtype=np.int64)
+
+    if read_gps:
+        pass ####### Phred
+
+    if not phased:
+        biallelic_mask = np.array([len(set(row)) > 2 for row in matrix])
+        positions = positions[~biallelic_mask]
+        matrix = matrix[~biallelic_mask]
+        matrix = matrix[:, ::2] + matrix[:, 1::2]
+    return matrix, positions, samples, populations
+
+
+def _parse_vcf_line(line_elems, sample_idx, gt_idx):
+    """Extract allele codes (as strings) from a split VCF line."""
+    samples = [line_elems[i] for i in sample_idx]
+    gt_strs = [s.split(":")[gt_idx] for s in samples]
+    haplotypes = [a for gt in gt_strs for a in re.split("/|\\|", gt)]
+    return haplotypes
+
+
+def _parse_vcf_line_gp(line_elems, sample_idx, gp_idx):
+    """Extract genotype probabilities (as strings) from a split VCF line."""
+    samples = [line_elems[i] for i in sample_idx]
+    gp_strs = [s.split(":")[gp_idx] for s in samples]
+    geno_probs = [gp for gps in gp_strs for gp in gps.split(",")]
+    return geno_probs
+
+
+def _load_pop_file(pop_file):
+    """
+    Load population specification.
+
+    The specification file should have one whitespace-separated assignment on
+    each line, e.g.,
+
+        sample1 popA
+        sample2 popB
+        sample3 popA
+    """
+    populations = collections.defaultdict(list)
+    with open(pop_file, "r") as fin:
+        for line in fin:
+            sample, population = line.strip().split()
+            populations[population].append(sample)
+    return populations
+
+
+
+
+#####
+
+
 
 
 def _generate_pairs(pop_ids):
