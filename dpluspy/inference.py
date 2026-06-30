@@ -1,6 +1,3 @@
-"""
-Functions for fitting parameters and computing model likelihoods with D+
-"""
 
 from collections import defaultdict
 from datetime import datetime
@@ -20,6 +17,15 @@ from .datastructures import DPlusStats
 
 _out_of_bounds = 1e10
 _counter = 0
+
+
+# =============================================================================
+# Principal inference function
+# =============================================================================
+
+
+def optimize():
+    return
 
 
 def load_stats(data_file, graph=None, to_pops=None, return_dict=False):

@@ -8,6 +8,6 @@ from . import uncerts
 from . import plotting
 
 from .matrices import HaplotypeMatrix, GenotypeMatrix, GenoProbMatrix
-from .h2stats_mod import H2Stats
+from .h2stats_mod import H2stats
 
 

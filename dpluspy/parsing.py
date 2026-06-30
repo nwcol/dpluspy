@@ -21,7 +21,6 @@ def compute_h2_stats(
     genotype_matrix=None,
     geno_prob_matrix=None,
     pop_file=None,
-    pops=None,
     rec_map_file=None,
     r_bins=None,
     bp_bins=None,
@@ -29,13 +28,14 @@ def compute_h2_stats(
     mut_file=None,
     u_bar=None,
     use_genotypes=True,
-    use_gps=False,
+    use_geno_probs=False,
     report=True,
     bed_file=None,
     interval=None,
     parse_denominator=True,
     pairwise=True,
     stats_to_compute=None,
+    apply_filter=False,
     ):
     """
     Compute H2 statistics on a chromosome or arbitrary chromosome interval and
@@ -57,15 +57,55 @@ def compute_h2_stats(
             Bin edges, matching `r_bins` or `bp_bins`.
         'sums' : np.ndarray, shape (n_bins + 1, n_stats)
     """
+    # Load sequence data
+    if use_genotypes:
+        if genotype_matrix is not None:
+            matrix = genotype_matrix
+        elif haplotype_matrix is not None:
+            matrix = GenotypeMatrix.from_haplotype_matrix(haplotype_matrix)
+            # TODO mask preloaded matrices?
+        else:
+            if vcf_file is None:
+                raise ValueError("`vcf_file` required")
+            if pop_file is None:
+                raise ValueError("`pop_file` required")
+            matrix = GenotypeMatrix.from_vcf(
+                vcf_file,
+                bed_file=bed_file,
+                pop_file=pop_file,
+                interval=interval,
+                apply_filter=apply_filter
+                )
+        if report:
+            print(timestamp,
+                  f" {matrix.n_samples} diploids, {matrix.n_sites} sites")
+    elif use_geno_probs:
+        if geno_prob_matrix is not None:
+            matrix = geno_prob_matrix
+        else:
+            if vcf_file is None:
+                raise ValueError("`vcf_file` required")
+            if pop_file is None:
+                raise ValueError("`pop_file` required")
+            matrix = GenoProbMatrix.from_vcf(
+                vcf_file,
+                bed_file=bed_file,
+                pop_file=pop_file,
+                interval=interval,
+                apply_filter=apply_filter
+                )
+    else:
+        if haplotype_matrix is not None:
+            matrix = haplotype_matrix
 
+    # Load recombination map data
+    if rec_map_file is not None and r_bins is not None:
+        pass
 
-    # Print information ....
-
-
-    # Load data ...
+    # Load mutation map data
 
     data = dict()
-    data["pops"] = []
+    data["pops"] = matrix.pop_names
     data["stats"] = stats_to_compute
     data["bins"] = _unfold_bins(bins)
     data["sums"] = _compute_h2_sums(
@@ -84,7 +124,7 @@ def compute_h2_stats(
 
 def _compute_h2_stats(
     matrix,
-
+    
     stats_to_compute=None
     ):
     """
@@ -142,13 +182,9 @@ def compute_h2_denoms(
     denoms : np.ndarray, shape (n_bins)
         Binned counts of accessible site pairs.
     """
-
-    positions = _get_positions(bed_file)
+    positions = _get_bed_file_positions(bed_file, interval=interval)
     if rec_map_file is not None and r_bins is not None:
-        coords = _assign_map_coordinates(
-            positions,
-            rec_map_file
-            )
+        coords = _assign_map_coordinates(positions, rec_map_file)
         bins = r_bins
     else:
         if bp_bins is not None:
@@ -266,9 +302,79 @@ def bootstrap_data(all_data):
     return data
 
 
-def subset_data(data, to_pops=None, to_stats=None, r_min=None, r_max=None):
+def subset_data(data, to_pops=None, r_min=None, r_max=None):
+    """
+    Subset a dictionary of statistics to given populations/bins.
 
-    return
+    Parameters
+    ----------
+
+    Returns
+    -------
+    """
+    means = data["means"]
+    varcovs = data["varcovs"]
+
+    if to_pops is not None:
+        means = _subset_means(means, data["pops"], to_pops)
+        varcovs = _subset_varcovs(varcovs, data["pops"], to_pops)
+        pops = to_pops
+        n_pops = len(pops)
+        stats = [_h2_names(n_pops), _h_names(n_pops)]
+    else:
+        pops = data["pops"]
+        stats = data["stats"]
+
+    bins = []
+    new_means = []
+    new_varcovs = []
+    for ii, b in enumerate(data["bins"]):
+        if r_min is not None:
+            if b[0] < r_min:
+                continue
+        if r_max is not None:
+            if b[1] > r_max:
+                continue
+        bins.append(b)
+        new_means.append(means[ii])
+        new_varcovs.append(varcovs[ii])
+
+    data_out = dict()
+    data_out["pops"] = pops
+    data_out["stats"] = stats
+    data_out["bins"] = bins
+    data_out["means"] = new_means
+    data_out["varcovs"] = new_varcovs
+    return data_out
+
+
+def _subset_means(means, pops, to_pops):
+    """Extract the subset of means that pertain to populations in `to_pops`"""
+    stats = _h2_names(len(pops))
+    to_indices = [pops.index(p) for p in to_pops]
+    to_stats = []
+    for ii, idx1 in enumerate(to_indices):
+        for idx2 in to_indices[ii:]:
+            idx1, idx2 = sorted([idx1, idx2])
+            to_stats.append(f"H2_{idx1}_{idx2}")
+    keep = np.array([stats.index(s) for s in to_stats])
+    new_means = [m[keep] for m in means]
+    return new_means
+
+
+def _subset_varcovs(varcovs, pops, to_pops):
+    """Extract a subsets of covariance matrices that correspond to `to_pops`"""
+    stats = _h2_names(len(pops))
+    to_indices = [pops.index(p) for p in to_pops]
+    to_stats = []
+    for ii, idx1 in enumerate(to_indices):
+        for idx2 in to_indices[ii:]:
+            idx1, idx2 = sorted([idx1, idx2])
+            to_stats.append(f"H2_{idx1}_{idx2}")
+    keep = np.array([stats.index(s) for s in to_stats])
+    mesh = np.ix_(keep, keep)
+    new_varcovs = [v[mesh] for v in varcovs]
+    return new_varcovs
 
 
 # -----------------------------------------------------------------------------
@@ -732,6 +838,7 @@ def _compute_heterozygosity():
 # Utilities
 # -----------------------------------------------------------------------------
 
+
 def _h_names(n_pops):
     """Get a list of names for heterozygosity statistics"""
     names = []
@@ -758,7 +865,19 @@ def _unfold_bins(bins):
     return unfolded_bins
 
 
-def _assign_map_coordinates():
+def _get_bed_file_positions(bed_file, interval=None):
+    """Load a vector of 0-indexed positions from a BED file"""
+    regions = utils._read_bed_file(bed_file)[0]
+    mask = utils._regions_to_mask(regions)
+    positions = np.where(mask == False)[0]
+    if interval is not None:
+        start, end = interval
+        positions = positions[(positions >= start) & (positions < end)]
+    return positions
 
-    return
+
+def _assign_map_coordinates(positions, rec_map_file):
+    map_pos, map_coords = utils._read_hapmap_map(rec_map_file)
+    coords = np.interp(positions, map_pos, map_coords)
+    return coords
 

@@ -125,6 +125,10 @@ class GenotypeMatrix():
     def n_sites(self):
         return self.genotypes.shape[0]
 
+    @property
+    def n_samples(self):
+        return self.genotypes.shape[1]
+
     def slice_sample(self, sample):
         """Get the genotype vector for a given sample."""
         idx = self.samples.index(sample)
