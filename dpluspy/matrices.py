@@ -22,7 +22,7 @@ class HaplotypeMatrix():
         self.haplotypes = np.asarray(haplotypes, dtype=np.int8)
         self.positions = np.asarray(positions, drype=np.int64)
 
-        assert self.haplotypes.shape[1] & 2 == 0
+        assert self.haplotypes.shape[1] % 2 == 0
 
         if samples is None:
             samples = list(range(self.n_samples))
@@ -51,7 +51,7 @@ class HaplotypeMatrix():
     def slice_sample(self, sample):
         """Get the bare haplotype array for a specific sample."""
         idx = self.samples.index(sample)
-        return self.haplotypes[:, 2 * idx:2 * idx + 2]
+        return self.haplotypes[:, 2 * idx:2 * (idx + 1)]
 
     def slice_population(self, population):
         """Get the bare haplotype array for a specific population."""
@@ -59,8 +59,8 @@ class HaplotypeMatrix():
         idxs = []
         for sample in samples:
             idx = self.samples.index(sample)
-            idxs += [2 * idx, 2 * idx + 1]
-        return self.haplotypes[:, idx]
+            idxs += [2 * idx, 2 * (idx + 1)]
+        return self.haplotypes[:, idxs]
 
     @classmethod
     def from_vcf(
@@ -199,7 +199,7 @@ class GenoProbMatrix():
         self.geno_probs = np.asarray(geno_probs, dtype=np.float64)
         self.positions = np.asarray(positions, dtype=np.int64)
 
-        assert self.geno_probs.shape[1] & 3 == 0
+        assert self.geno_probs.shape[1] % 3 == 0
 
         if samples is None:
             samples = list(range(self.n_samples))
@@ -224,7 +224,7 @@ class GenoProbMatrix():
     def slice_sample(self, sample):
         """Get the bare genotype probability array for a specific sample."""
         idx = self.samples.index(sample)
-        return self.haplotypes[:, 3 * idx:3 * idx + 3]
+        return self.geno_probs[:, 3 * idx:3 * (idx + 1)]
 
     def slice_population(self, population):
         """Get the bare genotype prob. array for a specific population."""
@@ -232,11 +232,12 @@ class GenoProbMatrix():
         idxs = []
         for sample in samples:
             idx = self.samples.index(sample)
-            idxs += list(range(3 * idx, 3 * idx + 3))
-        return self.haplotypes[:, idx]
+            idxs += list(range(3 * idx, 3 * (idx + 1)))
+        return self.geno_probs[:, idxs]
 
     @classmethod
     def from_vcf(
+        cls,
         vcf_file,
         bed_file=None,
         pop_file=None,
@@ -250,7 +251,7 @@ class GenoProbMatrix():
             vcf_file,
             bed_file=bed_file,
             pop_file=pop_file,
-            read_gp=True,
+            read_gps=True,
             interval=interval,
             apply_filter=apply_filter,
             )

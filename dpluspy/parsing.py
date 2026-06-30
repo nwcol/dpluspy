@@ -5,8 +5,8 @@
 
 import numpy as np
 
-from .matrices import HaplotypeMatrix, GenotypeMatrix, GPMatrix
-from . import util
+from .matrices import HaplotypeMatrix, GenotypeMatrix, GenoProbMatrix
+from . import utils
 
 
 # =============================================================================
@@ -62,9 +62,9 @@ def compute_h2_stats(
 def _compute_h2_sums():
     """
     """
-    
+
     if pairwise is True:
-        
+        pass
 
     else:
         raise ValueError("not implemented")
@@ -205,7 +205,7 @@ def _h2_pw_haplotype_within(haplotypes, coords, bins, weights=None):
     is_het = 1.0 * (haplotypes[:, 0] != haplotypes[:, 1])
     if weights is not None:
         is_het = is_het * weights
-    return = _compute_binned_sums(is_het, coords, bins)
+    return _compute_binned_sums(is_het, coords, bins)
 
 
 def _h2_pw_haplotype_between(

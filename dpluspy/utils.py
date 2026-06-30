@@ -47,11 +47,13 @@ def read_vcf_file(
     matrix = []
     positions = []
 
+    chrom = None
+
     # Indices of target entries in SAMPLE strings
     gt_idx = None
     gp_idx = None
 
-    with opener(vcf_file, "rb") as fin:
+    with open_func(vcf_file, "rb") as fin:
         for line_bytes in fin:
             line = line_bytes.decode()
             if line.startswith("#"):
@@ -66,8 +68,15 @@ def read_vcf_file(
                 continue
 
             elems = line.split()
-            pos1 = int(elems[0])
+            line_chrom = elems[0]
+            if chrom is not None:
+                if line_chrom != chrom:
+                    raise ValueError("cannot read files with > 1 chromosomes")
+            else:
+                chrom = line_chrom
+            pos1 = int(elems[1])
             pos0 = pos1 - 1
+
             if interval is not None:
                 if pos0 < interval[0]:
                     continue
@@ -75,7 +84,7 @@ def read_vcf_file(
                     break
 
             if site_mask is not None:
-                if pos0 >= len(site_mask)
+                if pos0 >= len(site_mask):
                     break
                 if site_mask[pos0]:
                     continue
@@ -89,12 +98,12 @@ def read_vcf_file(
                 if gp_idx is None:
                     frmat = elems[8]
                     gp_idx = frmat.split(":").index("GP")
-                matrix_row = _parse_vcf_line_gp(line_elems, sample_idx, gp_idx)
+                matrix_row = _parse_vcf_line_gp(elems, sample_idx, gp_idx)
             else:
                 if gt_idx is None:
                     frmat = elems[8]
-                    gp_idx = frmat.split(":").index("GT")
-                matrix_row = _parse_vcf_line(line_elems, sample_idx, gp_idx)
+                    gt_idx = frmat.split(":").index("GT")
+                matrix_row = _parse_vcf_line(elems, sample_idx, gt_idx)
 
             matrix.append(matrix_row)
             positions.append(pos0)
@@ -103,27 +112,29 @@ def read_vcf_file(
     positions = np.asarray(positions, dtype=np.int64)
 
     if read_gps:
-        pass ####### Phred
-
-    if not phased:
-        biallelic_mask = np.array([len(set(row)) > 2 for row in matrix])
-        positions = positions[~biallelic_mask]
-        matrix = matrix[~biallelic_mask]
-        matrix = matrix[:, ::2] + matrix[:, 1::2]
+        matrix = matrix.astype(np.float64)
+        matrix = _transform_gp_phred_scores(matrix)
+    else:
+        matrix = matrix.astype(np.int8)
+        if not phased:
+            biallelic_mask = np.array([len(set(row)) > 2 for row in matrix])
+            positions = positions[~biallelic_mask]
+            matrix = matrix[~biallelic_mask]
+            matrix = matrix[:, ::2] + matrix[:, 1::2]
     return matrix, positions, samples, populations
 
 
-def _parse_vcf_line(line_elems, sample_idx, gt_idx):
+def _parse_vcf_line(elems, sample_idx, gt_idx):
     """Extract allele codes (as strings) from a split VCF line."""
-    samples = [line_elems[i] for i in sample_idx]
+    samples = [elems[9:][i] for i in sample_idx]
     gt_strs = [s.split(":")[gt_idx] for s in samples]
     haplotypes = [a for gt in gt_strs for a in re.split("/|\\|", gt)]
     return haplotypes
 
 
-def _parse_vcf_line_gp(line_elems, sample_idx, gp_idx):
+def _parse_vcf_line_gp(elems, sample_idx, gp_idx):
     """Extract genotype probabilities (as strings) from a split VCF line."""
-    samples = [line_elems[i] for i in sample_idx]
+    samples = [elems[9:][i] for i in sample_idx]
     gp_strs = [s.split(":")[gp_idx] for s in samples]
     geno_probs = [gp for gps in gp_strs for gp in gps.split(",")]
     return geno_probs
@@ -148,6 +159,26 @@ def _load_pop_file(pop_file):
     return populations
 
 
+def _transform_gp_phred_scores(phred_arr):
+    """
+    Transform an array of biallelic genotype probabilities from Phred-scaled
+    probabilities to regular probabilities.
+    """
+    assert phred_arr.shape[1] % 3 == 0
+    n_samples = int(phred_arr.shape[1] / 3)
+    prob_arr = np.zeros_like(phred_arr)
+    for idx in range(n_samples):
+        start = 3 * idx
+        end = 3 * (idx + 1)
+        scores = phred_arr[:, start:end]
+        raw_probs = 10 ** (-scores / 10)
+        prob_arr[:, start:end] = raw_probs / np.sum(raw_probs, axis=1)[:, None]
+    return prob_arr
+
+
+# -----------------------------------------------------------------------------
+#
+# -----------------------------------------------------------------------------
 
 
 #####

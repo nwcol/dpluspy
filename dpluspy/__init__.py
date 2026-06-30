@@ -1,12 +1,13 @@
 
 from . import utils
-from . import parsing 
-from . import bootstrapping 
-from . import datastructures 
-from . import inference 
+from . import matrices
+from . import parsing
+from . import h2stats_mod
+from . import inference
 from . import uncerts
 from . import plotting
-from . import gtprobs
-from . import simtools
 
-DplusStats = datastructures.DPlusStats
+from .matrices import HaplotypeMatrix, GenotypeMatrix, GenoProbMatrix
+from .h2stats_mod import H2Stats
+
+
