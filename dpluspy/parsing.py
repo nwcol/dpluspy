@@ -7,6 +7,7 @@ import numpy as np
 
 from .matrices import HaplotypeMatrix, GenotypeMatrix, GenoProbMatrix
 from . import utils
+from .utils import timestamp
 
 
 # =============================================================================
@@ -18,7 +19,7 @@ def compute_h2_stats(
     vcf_file=None,
     haplotype_matrix=None,
     genotype_matrix=None,
-    gp_matrix=None,
+    geno_prob_matrix=None,
     pop_file=None,
     pops=None,
     rec_map_file=None,
@@ -33,7 +34,8 @@ def compute_h2_stats(
     bed_file=None,
     interval=None,
     parse_denominator=True,
-    pairwise=True
+    pairwise=True,
+    stats_to_compute=None,
     ):
     """
     Compute H2 statistics on a chromosome or arbitrary chromosome interval and
@@ -51,30 +53,113 @@ def compute_h2_stats(
     Returns
     -------
     dict with 'bins', 'sums', 'stats', 'pops', and optionally 'denoms'.
+        'bins' : np.ndarray, shape (n_bins + 1)
+            Bin edges, matching `r_bins` or `bp_bins`.
+        'sums' : np.ndarray, shape (n_bins + 1, n_stats)
     """
 
 
     # Print information ....
 
-    return
+
+    # Load data ...
+
+    data = dict()
+    data["pops"] = []
+    data["stats"] = stats_to_compute
+    data["bins"] = _unfold_bins(bins)
+    data["sums"] = _compute_h2_sums(
+        matrix,
+        )
+    if compute_denoms:
+        data["denoms"] = compute_h2_denoms(
+            bed_file=bed_file,
+            rec_map_file=rec_map_file,
+            r_bins=r_bins,
+            bp_bins=bp_bins,
+            interval=interval,
+            )
+    return data
 
 
-def _compute_h2_sums():
+def _compute_h2_stats(
+    matrix,
+
+    stats_to_compute=None
+    ):
     """
     """
+
+    if stats_to_compute is None:
+        n_pops = len(pops)
+        stats_to_compute = [_h2_names(n_pops), _h_names(n_pops)]
+
 
     if pairwise is True:
         pass
-
+        h2_sums = []
     else:
         raise ValueError("not implemented")
+        h2_sums = []
+
+    if len(stats_to_compute[1]) > 0:
+        h_sums = _compute_heterozygosity()
+    else:
+        h_sums = []
+
+    # Mimic the output of moments.LD.Parsing.compute_ld_stats(); `sums` is a
+    # list of arrays; each array holds H2 sums for a specific bin, and the
+    # last element is a vector of H sums.
+    sums = [row for row in h2_sums]
+    sums.append(h_sums)
     return sums
 
 
-def compute_h2_denoms(
+def _compute_h2_sums():
 
-    ):
     return
+
+
+def compute_h2_denoms(
+    bed_file=None,
+    rec_map_file=None,
+    r_bins=None,
+    bp_bins=None,
+    interval=None,
+    ):
+    """
+    Compute the denominator of the H2 statistic- the number of pairs of
+    accessible sites, binned by the distances between them.
+
+    The last element of the denominator array holds the denominator of the
+    heterozygosity statistic, which is the number of accessible sites.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+    denoms : np.ndarray, shape (n_bins)
+        Binned counts of accessible site pairs.
+    """
+
+    positions = _get_positions(bed_file)
+    if rec_map_file is not None and r_bins is not None:
+        coords = _assign_map_coordinates(
+            positions,
+            rec_map_file
+            )
+        bins = r_bins
+    else:
+        if bp_bins is not None:
+            coords = positions
+            bins = bp_bins
+        else:
+            raise ValueError("bins must be provided")
+    h2_denoms = _compute_binned_denoms(coords, bins)
+    n_sites = len(positions)
+    denoms = np.append(h2_denoms, n_sites)
+    return denoms
 
 
 def _compute_binned_denoms(coords, bins):
@@ -91,27 +176,97 @@ def _compute_binned_denoms(coords, bins):
     return binned_denoms
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # Functions for averaging/bootstrapping across genomic intervals
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 
-def mean_across_data():
+def get_means_across_regions(all_data):
+    """
+    Compute mean statistics across several genomic intervals.
 
-    return
+    Parameters
+    ----------
+    all_data : dict
+        Maps genomic interval labels to dicts following the output of TODO
+
+    Returns
+    -------
+    means : list, length n_bins
+    """
+    labels = list(all_data.keys())
+    numers = [0.0 * row for row in all_data[labels[0]]["sums"]]
+    denoms = [0.0 for row in all_data[labels[0]]["denoms"]]
+    for label in labels:
+        for ii in range(len(numers)):
+            numers[ii] += all_data[label]["sums"][ii]
+            denoms[ii] += all_data[label]["denoms"][ii]
+    means = [n / d for n, d in zip(numers, denoms)]
+    return means
 
 
-def draw_boostrap_sets():
+def get_bootstrap_replicates(all_data, n_replicates=None, n_samples=None):
+    """
+    Draw several bootstrap replicates from a list of sums computed on genomic
+    intervals.
 
-    return
+    Parameters
+    ----------
+    all_data : dict
+        Maps genomic interval labels to dicts following the output of TODO
+    n_replicates : int, optional
+        Number of bootstrap replicates to conduct. If None, defaults to the
+        length of `all_data`.
+    n_samples : int, optional
+        Number of samples per replicate. If None, defaults to the length of
+        `all_data`.
+
+    Returns
+    -------
+    sets : list
+        List of bootstrap sample means.
+    """
+    if n_replicates is None:
+        n_replicates = len(all_data)
+    if n_samples is None:
+        n_samples = len(all_data)
+
+    labels = list(all_data.keys())
+    all_means = []
+    for ii in range(n_replicates):
+        sample_data = dict()
+        for jj in range(n_samples):
+            label = np.random.choice(labels)
+            sample_data[ii] = all_data[label]
+        sample_means = get_means_across_regions(sample_data)
+        all_means.append(sample_means)
+    return all_means
 
 
-def bootstrap_data():
+def bootstrap_data(all_data):
+    """
+    Compute a variance/covariance matrix across H2 statistics for each bin,
+    by bootstrapping across sums of the statistic precomputed on genomic
+    intervals.
+    """
+    # Check to make sure the variance/covariance matrix can be computed
 
-    return
+    labels = list(all_data.keys())
+    means = get_means_across_regions(all_data)
+    bootstrap_means = get_bootstrap_replicates(all_data)
+    reshaped_means = [[m[i] for m in bootstrap_means]
+                       for i in range(len(means))]
+    varcovs = [np.cov(np.array(m).T) for m in reshaped_means]
+    data = dict()
+    data["pops"] = all_data[labels[0]]["pops"]
+    data["stats"] = all_data[labels[0]]["stats"]
+    data["bins"] = all_data[labels[0]]["bins"]
+    data["means"] = means
+    data["varcovs"] = varcovs
+    return data
 
 
-def subset_data():
+def subset_data(data, to_pops=None, to_stats=None, r_min=None, r_max=None):
 
     return
 
@@ -577,7 +732,8 @@ def _compute_heterozygosity():
 # Utilities
 # -----------------------------------------------------------------------------
 
-def h_names(n_pops):
+def _h_names(n_pops):
+    """Get a list of names for heterozygosity statistics"""
     names = []
     for ii in range(n_pops):
         for jj in range(ii, n_pops):
@@ -585,10 +741,24 @@ def h_names(n_pops):
     return names
 
 
-def h2_names(n_pops):
+def _h2_names(n_pops):
+    """Get a list of names for H2 statistics"""
     names = []
     for ii in range(n_pops):
         for jj in range(ii, n_pops):
             names.append(f"H2_{ii}_{jj}")
     return names
+
+
+def _unfold_bins(bins):
+    """Get a list of 2-tuples with bin edges from a vector of bin edges"""
+    unfolded_bins = []
+    for ii in range(len(bins) - 1):
+        unfolded_bins.append((float(bins[ii]), float(bins[ii + 1])))
+    return unfolded_bins
+
+
+def _assign_map_coordinates():
+
+    return
 

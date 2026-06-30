@@ -584,6 +584,11 @@ def _inverse_map_function(d):
     return (1 - np.exp(2 * -d)) / 2
 
 
+def timestamp():
+    """Get a string representing the date and time."""
+    return f"<{datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')}>"
+
+
 def _current_time():
     """
     Return a string giving the time and date with yyyy-mm-dd format.
